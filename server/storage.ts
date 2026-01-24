@@ -105,6 +105,47 @@ export class DatabaseStorage implements IStorage {
       )
     );
   }
+
+  // Pool-related methods
+  async getPoolPassengers(poolId: number): Promise<Booking[]> {
+    // Get all bookings in a pool (where poolId matches OR id equals poolId for owner)
+    return await db.select().from(bookings).where(
+      and(
+        eq(bookings.poolId, poolId),
+        eq(bookings.joinStatus, "accepted" as any)
+      )
+    );
+  }
+
+  async updateBookingPool(id: number, updates: { joinStatus?: string; status?: string; fare?: number }): Promise<Booking> {
+    const [updated] = await db
+      .update(bookings)
+      .set(updates as any)
+      .where(eq(bookings.id, id))
+      .returning();
+    return updated;
+  }
+
+  async incrementRideOccupied(rideId: number): Promise<Ride> {
+    const ride = await this.getRide(rideId);
+    if (!ride) throw new Error("Ride not found");
+    
+    const [updated] = await db
+      .update(rides)
+      .set({ occupied: (ride.occupied || 0) + 1 })
+      .where(eq(rides.id, rideId))
+      .returning();
+    return updated;
+  }
+
+  async getPendingPoolRequests(rideId: number): Promise<Booking[]> {
+    return await db.select().from(bookings).where(
+      and(
+        eq(bookings.rideId, rideId),
+        eq(bookings.joinStatus, "pending" as any)
+      )
+    );
+  }
 }
 
 export const storage = new DatabaseStorage();

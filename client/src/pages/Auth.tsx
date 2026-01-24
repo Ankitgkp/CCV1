@@ -21,12 +21,20 @@ const nameSchema = z.object({
   name: z.string().min(2, "Name is required"),
 });
 
+const vehicleSchema = z.object({
+  carModel: z.string().min(2, "Car model is required"),
+  carNumber: z.string().min(4, "Vehicle number is required"),
+  carColor: z.string().min(2, "Color is required"),
+  capacity: z.string().min(1, "Seating capacity is required"),
+});
+
 export default function Auth() {
   const [, setLocation] = useLocation();
   const { loginWithMobile, updateProfile } = useAuth();
-  const [step, setStep] = useState<"role" | "mobile" | "otp" | "name">("role");
+  const [step, setStep] = useState<"role" | "mobile" | "otp" | "name" | "vehicle">("role");
   const [role, setRole] = useState<"passenger" | "driver">("passenger");
   const [mobile, setMobile] = useState("");
+  const [driverName, setDriverName] = useState("");
 
   const mobileForm = useForm({
     resolver: zodResolver(mobileSchema),
@@ -41,6 +49,11 @@ export default function Auth() {
   const nameForm = useForm({
     resolver: zodResolver(nameSchema),
     defaultValues: { name: "" },
+  });
+
+  const vehicleForm = useForm({
+    resolver: zodResolver(vehicleSchema),
+    defaultValues: { carModel: "", carNumber: "", carColor: "", capacity: "4" },
   });
 
   const onRoleSelect = (selectedRole: "passenger" | "driver") => {
@@ -75,12 +88,33 @@ export default function Auth() {
 
   const onNameSubmit = async (data: { name: string }) => {
     try {
-        await updateProfile.mutateAsync({ name: data.name });
         if (role === "driver") {
-            setLocation("/driver/home");
+            // Save name and go to vehicle step
+            setDriverName(data.name);
+            setStep("vehicle");
         } else {
+            await updateProfile.mutateAsync({ name: data.name });
             setLocation("/home");
         }
+    } catch (e) {
+        // Handled by query client
+    }
+  };
+
+  const onVehicleSubmit = async (data: { carModel: string; carNumber: string; carColor: string; capacity: string }) => {
+    try {
+        // Update profile with name and save vehicle info
+        await updateProfile.mutateAsync({ name: driverName });
+        
+        // Store vehicle info in localStorage for now (in production, would save to server)
+        localStorage.setItem('driverVehicle', JSON.stringify({
+            carModel: data.carModel,
+            carNumber: data.carNumber,
+            carColor: data.carColor,
+            capacity: parseInt(data.capacity)
+        }));
+        
+        setLocation("/driver/home");
     } catch (e) {
         // Handled by query client
     }
@@ -96,10 +130,18 @@ export default function Auth() {
         <div className="mb-10 flex justify-between items-start">
           <div>
             <h1 className="text-3xl font-bold tracking-tight mb-2">
-              {step === "role" ? "Choose your account" : step === "mobile" ? "Enter your mobile number" : step === "otp" ? "Enter the 4-digit code" : "What's your name?"}
+              {step === "role" ? "Choose your account" : 
+               step === "mobile" ? "Enter your mobile number" : 
+               step === "otp" ? "Enter the 4-digit code" : 
+               step === "name" ? "What's your name?" :
+               "Vehicle Details"}
             </h1>
             <p className="text-slate-500 font-medium">
-              {step === "role" ? "Are you driving or riding today?" : step === "mobile" ? "We'll send you a code for verification" : step === "otp" ? `A code has been sent to ${mobile}` : "Let us know what to call you"}
+              {step === "role" ? "Are you driving or riding today?" : 
+               step === "mobile" ? "We'll send you a code for verification" : 
+               step === "otp" ? `A code has been sent to ${mobile}` : 
+               step === "name" ? "Let us know what to call you" :
+               "Tell us about your vehicle"}
             </p>
           </div>
           {step !== "role" && (
@@ -210,7 +252,7 @@ export default function Auth() {
                 </div>
               </form>
             </Form>
-          ) : (
+          ) : step === "name" ? (
             <Form {...nameForm} key="name-form">
                 <form onSubmit={nameForm.handleSubmit(onNameSubmit)} className="space-y-6">
                   <FormField
@@ -237,6 +279,93 @@ export default function Auth() {
                     disabled={updateProfile.isPending}
                   >
                     {updateProfile.isPending ? "Saving..." : "Continue"}
+                  </Button>
+                </form>
+            </Form>
+          ) : (
+            // Vehicle Details Step (Driver Only)
+            <Form {...vehicleForm} key="vehicle-form">
+                <form onSubmit={vehicleForm.handleSubmit(onVehicleSubmit)} className="space-y-4">
+                  <FormField
+                    control={vehicleForm.control}
+                    name="carModel"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-bold text-slate-500 uppercase">Car Model</FormLabel>
+                        <FormControl>
+                            <Input 
+                              className="h-14 bg-slate-50 border-slate-200 rounded-2xl text-lg font-bold focus:ring-2 focus:ring-black px-4" 
+                              placeholder="e.g. Toyota Innova" 
+                              autoFocus
+                              {...field} 
+                            />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={vehicleForm.control}
+                    name="carNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-bold text-slate-500 uppercase">Vehicle Number</FormLabel>
+                        <FormControl>
+                            <Input 
+                              className="h-14 bg-slate-50 border-slate-200 rounded-2xl text-lg font-bold focus:ring-2 focus:ring-black px-4 uppercase" 
+                              placeholder="e.g. DL-01-AB-1234" 
+                              {...field} 
+                            />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField
+                      control={vehicleForm.control}
+                      name="carColor"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-bold text-slate-500 uppercase">Color</FormLabel>
+                          <FormControl>
+                              <Input 
+                                className="h-14 bg-slate-50 border-slate-200 rounded-2xl text-lg font-bold focus:ring-2 focus:ring-black px-4" 
+                                placeholder="White" 
+                                {...field} 
+                              />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={vehicleForm.control}
+                      name="capacity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-bold text-slate-500 uppercase">Seats</FormLabel>
+                          <FormControl>
+                              <Input 
+                                type="number"
+                                min="1"
+                                max="8"
+                                className="h-14 bg-slate-50 border-slate-200 rounded-2xl text-lg font-bold focus:ring-2 focus:ring-black px-4 text-center" 
+                                placeholder="4" 
+                                {...field} 
+                              />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <Button 
+                    type="submit" 
+                    className="w-full h-16 bg-black text-white hover:bg-slate-900 rounded-2xl text-lg font-bold mt-4"
+                    disabled={updateProfile.isPending}
+                  >
+                    {updateProfile.isPending ? "Setting up..." : "Complete Registration"}
                   </Button>
                 </form>
             </Form>

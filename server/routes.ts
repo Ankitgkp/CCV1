@@ -131,7 +131,10 @@ export async function registerRoutes(
         userId: input.userId ?? null,
         rideId: input.rideId ?? null,
         fare: input.fare ?? null,
-      });
+        isPool: input.isPool ?? null,
+        distance: input.distance ?? null,
+        joinStatus: input.joinStatus ?? null,
+      } as any);
       res.status(201).json(booking);
     } catch (err) {
       console.error("Booking Creation Error:", err);
@@ -268,6 +271,181 @@ export async function registerRoutes(
     }
   });
 
+  // ========== POOL ENDPOINTS ==========
+
+  // Haversine distance calculation helper
+  const calculateHaversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Find available pools near user's pickup/dropoff
+  app.post("/api/pools/available", async (req, res) => {
+    try {
+      const schema = z.object({
+        pickupLat: z.number(),
+        pickupLng: z.number(),
+        dropoffLat: z.number(),
+        dropoffLng: z.number(),
+      });
+      const { pickupLat, pickupLng, dropoffLat, dropoffLng } = schema.parse(req.body);
+
+      // Get all active pool bookings that are accepted (in progress)
+      const allBookings = await storage.getBookingsByStatus("accepted");
+      const poolBookings = allBookings.filter(b => b.isPool && b.joinStatus === "owner");
+
+      const availablePools = [];
+      for (const booking of poolBookings) {
+        // Check if pickup is within 4km of pool's route
+        const pickupDistance = calculateHaversine(pickupLat, pickupLng, booking.pickupLat, booking.pickupLng);
+        const dropoffDistance = calculateHaversine(dropoffLat, dropoffLng, booking.dropoffLat, booking.dropoffLng);
+        
+        // Must be within 4km of pickup and dropoff points
+        if (pickupDistance < 4 && dropoffDistance < 4) {
+          const ride = booking.rideId ? await storage.getRide(booking.rideId) : null;
+          const driver = ride?.driverId ? await storage.getUser(ride.driverId) : null;
+          
+          if (ride && ride.occupied < ride.capacity) {
+            availablePools.push({
+              booking,
+              ride,
+              driver,
+              pickupDistance: pickupDistance.toFixed(1),
+              dropoffDistance: dropoffDistance.toFixed(1),
+              availableSeats: ride.capacity - ride.occupied,
+            });
+          }
+        }
+      }
+
+      res.json(availablePools);
+    } catch (err) {
+      console.error("Find Pools Error:", err);
+      res.status(400).json({ message: "Failed to find pools" });
+    }
+  });
+
+  // Get all passengers in a pool
+  app.get("/api/pools/:poolId/passengers", async (req, res) => {
+    try {
+      const poolId = parseInt(req.params.poolId);
+      const passengers = await storage.getPoolPassengers(poolId);
+      res.json(passengers);
+    } catch (err) {
+      res.status(400).json({ message: "Failed to get passengers" });
+    }
+  });
+
+  // Request to join a pool
+  app.post("/api/pools/join-request", async (req, res) => {
+    try {
+      const schema = z.object({
+        poolId: z.number(), // The original booking that created the pool
+        userId: z.number(),
+        pickupAddress: z.string(),
+        dropoffAddress: z.string(),
+        pickupLat: z.number(),
+        pickupLng: z.number(),
+        dropoffLat: z.number(),
+        dropoffLng: z.number(),
+        distance: z.number(), // User's segment distance
+      });
+      const data = schema.parse(req.body);
+
+      // Get original pool booking to get rideId
+      const originalBooking = await storage.getBooking(data.poolId);
+      if (!originalBooking || !originalBooking.isPool) {
+        return res.status(404).json({ message: "Pool not found" });
+      }
+
+      // Create a pending join request booking
+      const booking = await storage.createBooking({
+        userId: data.userId,
+        rideId: originalBooking.rideId,
+        pickupAddress: data.pickupAddress,
+        dropoffAddress: data.dropoffAddress,
+        pickupLat: data.pickupLat,
+        pickupLng: data.pickupLng,
+        dropoffLat: data.dropoffLat,
+        dropoffLng: data.dropoffLng,
+        status: "pending",
+        otp: Math.floor(1000 + Math.random() * 9000).toString(),
+        fare: 0, // Will be calculated when accepted
+        isPool: true,
+        poolId: data.poolId,
+        distance: data.distance,
+        joinStatus: "pending",
+      });
+
+      res.status(201).json(booking);
+    } catch (err) {
+      console.error("Join Pool Error:", err);
+      res.status(400).json({ message: "Failed to create join request" });
+    }
+  });
+
+  // Driver responds to join request (accept/reject)
+  app.patch("/api/pools/respond/:bookingId", async (req, res) => {
+    try {
+      const bookingId = parseInt(req.params.bookingId);
+      const schema = z.object({
+        action: z.enum(["accept", "reject"]),
+        pricePerKm: z.number().optional(), // For fare calculation
+      });
+      const { action, pricePerKm = 10 } = schema.parse(req.body);
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.joinStatus !== "pending") {
+        return res.status(404).json({ message: "Join request not found" });
+      }
+
+      if (action === "accept") {
+        // Calculate proportional fare
+        const fare = Math.round((booking.distance || 0) * pricePerKm);
+        
+        // Update booking
+        await storage.updateBookingPool(bookingId, {
+          joinStatus: "accepted",
+          status: "accepted",
+          fare,
+        });
+
+        // Update ride occupied count
+        if (booking.rideId) {
+          await storage.incrementRideOccupied(booking.rideId);
+        }
+
+        res.json({ message: "Join request accepted", fare });
+      } else {
+        await storage.updateBookingPool(bookingId, {
+          joinStatus: "rejected",
+          status: "cancelled",
+        });
+        res.json({ message: "Join request rejected" });
+      }
+    } catch (err) {
+      console.error("Respond to Join Error:", err);
+      res.status(400).json({ message: "Failed to respond to join request" });
+    }
+  });
+
+  // Get pending pool join requests for a driver
+  app.get("/api/pools/requests/:rideId", async (req, res) => {
+    try {
+      const rideId = parseInt(req.params.rideId);
+      const requests = await storage.getPendingPoolRequests(rideId);
+      res.json(requests);
+    } catch (err) {
+      res.status(400).json({ message: "Failed to get requests" });
+    }
+  });
+
   return httpServer;
 }
 
@@ -335,4 +513,5 @@ async function seedDatabase() {
       currentRouteGeometry: null,
     });
   }
+
 }
