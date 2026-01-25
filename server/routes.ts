@@ -204,7 +204,6 @@ export async function registerRoutes(
   // Driver location tracking - in-memory store for simplicity
   const driverLocations: Map<number, { lat: number; lng: number; updatedAt: number }> = new Map();
 
-  // Driver updates their location
   app.post("/api/driver/location", async (req, res) => {
     try {
       const { bookingId, lat, lng } = req.body;
@@ -218,7 +217,6 @@ export async function registerRoutes(
     }
   });
 
-  // Passenger gets driver location
   app.get("/api/driver/location/:bookingId", async (req, res) => {
     const bookingId = parseInt(req.params.bookingId);
     const location = driverLocations.get(bookingId);
@@ -231,7 +229,6 @@ export async function registerRoutes(
   // Seed data
   await seedDatabase();
 
-  // Create Ride Route (For Driver Going Online)
   app.post("/api/rides", async (req, res) => {
     try {
       // In a real app, validate with Zod
@@ -244,7 +241,6 @@ export async function registerRoutes(
     }
   });
 
-  // Match Rides Route
   app.post("/api/rides/match", async (req, res) => {
     try {
       const schema = z.object({
@@ -268,9 +264,7 @@ export async function registerRoutes(
     }
   });
 
-  // ========== POOL ENDPOINTS ==========
 
-  // Haversine distance calculation helper
   const calculateHaversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
     const R = 6371; // Earth's radius in km
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -282,7 +276,6 @@ export async function registerRoutes(
     return R * c;
   };
 
-  // Find available pools near user's pickup/dropoff
   app.post("/api/pools/available", async (req, res) => {
     try {
       const schema = z.object({
