@@ -114,13 +114,11 @@ export async function registerRoutes(
     }
   });
 
-  // Rides routes
   app.get(api.rides.list.path, async (req, res) => {
     const rides = await storage.getRides();
     res.json(rides);
   });
 
-  // Bookings routes
   app.post(api.bookings.create.path, async (req, res) => {
     try {
       const input = api.bookings.create.input.parse(req.body);
@@ -156,7 +154,6 @@ export async function registerRoutes(
     const booking = await storage.getBooking(id);
     if (!booking) return res.status(404).json({ message: "Booking not found" });
     
-    // If booking has a rideId, fetch ride and driver details
     let ride = null;
     let driver = null;
     if (booking.rideId) {
@@ -342,11 +339,10 @@ export async function registerRoutes(
     }
   });
 
-  // Request to join a pool
   app.post("/api/pools/join-request", async (req, res) => {
     try {
       const schema = z.object({
-        poolId: z.number(), // The original booking that created the pool
+        poolId: z.number(), 
         userId: z.number(),
         pickupAddress: z.string(),
         dropoffAddress: z.string(),
@@ -354,17 +350,15 @@ export async function registerRoutes(
         pickupLng: z.number(),
         dropoffLat: z.number(),
         dropoffLng: z.number(),
-        distance: z.number(), // User's segment distance
+        distance: z.number(), 
       });
       const data = schema.parse(req.body);
 
-      // Get original pool booking to get rideId
       const originalBooking = await storage.getBooking(data.poolId);
       if (!originalBooking || !originalBooking.isPool) {
         return res.status(404).json({ message: "Pool not found" });
       }
 
-      // Create a pending join request booking
       const booking = await storage.createBooking({
         userId: data.userId,
         rideId: originalBooking.rideId,
@@ -376,7 +370,7 @@ export async function registerRoutes(
         dropoffLng: data.dropoffLng,
         status: "pending",
         otp: Math.floor(1000 + Math.random() * 9000).toString(),
-        fare: 0, // Will be calculated when accepted
+        fare: 0,
         isPool: true,
         poolId: data.poolId,
         distance: data.distance,
@@ -390,7 +384,6 @@ export async function registerRoutes(
     }
   });
 
-  // Driver responds to join request (accept/reject)
   app.patch("/api/pools/respond/:bookingId", async (req, res) => {
     try {
       const bookingId = parseInt(req.params.bookingId);
@@ -406,17 +399,14 @@ export async function registerRoutes(
       }
 
       if (action === "accept") {
-        // Calculate proportional fare
         const fare = Math.round((booking.distance || 0) * pricePerKm);
         
-        // Update booking
         await storage.updateBookingPool(bookingId, {
           joinStatus: "accepted",
           status: "accepted",
           fare,
         });
 
-        // Update ride occupied count
         if (booking.rideId) {
           await storage.incrementRideOccupied(booking.rideId);
         }
@@ -435,7 +425,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get pending pool join requests for a driver
   app.get("/api/pools/requests/:rideId", async (req, res) => {
     try {
       const rideId = parseInt(req.params.rideId);
@@ -450,7 +439,6 @@ export async function registerRoutes(
 }
 
 async function seedDatabase() {
-  // Seed User
   const users = await storage.getUser(1);
   if (!users) {
     await storage.createUser({
