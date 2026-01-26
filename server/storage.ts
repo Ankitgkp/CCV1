@@ -17,6 +17,7 @@ export interface IStorage {
   createBooking(booking: Omit<Booking, "id" | "createdAt">): Promise<Booking>;
   getBooking(id: number): Promise<Booking | undefined>;
   updateBookingStatus(id: number, status: string, otp?: string): Promise<Booking>;
+  getDriverEarnings(driverId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -104,6 +105,75 @@ export class DatabaseStorage implements IStorage {
         gt(bookings.createdAt, oneMinuteAgo)
       )
     );
+  }
+
+  // Pool-related methods
+  async getPoolPassengers(poolId: number): Promise<Booking[]> {
+    // Get all bookings in a pool (where poolId matches OR id equals poolId for owner)
+    return await db.select().from(bookings).where(
+      and(
+        eq(bookings.poolId, poolId),
+        eq(bookings.joinStatus, "accepted" as any)
+      )
+    );
+  }
+
+  async updateBookingPool(id: number, updates: { joinStatus?: string; status?: string; fare?: number }): Promise<Booking> {
+    const [updated] = await db
+      .update(bookings)
+      .set(updates as any)
+      .where(eq(bookings.id, id))
+      .returning();
+    return updated;
+  }
+
+  async incrementRideOccupied(rideId: number): Promise<Ride> {
+    const ride = await this.getRide(rideId);
+    if (!ride) throw new Error("Ride not found");
+    
+    const [updated] = await db
+      .update(rides)
+      .set({ occupied: (ride.occupied || 0) + 1 })
+      .where(eq(rides.id, rideId))
+      .returning();
+    return updated;
+  }
+
+  async getPendingPoolRequests(rideId: number): Promise<Booking[]> {
+    return await db.select().from(bookings).where(
+      and(
+        eq(bookings.rideId, rideId),
+        eq(bookings.joinStatus, "pending" as any)
+      )
+    );
+  }
+
+  async getDriverEarnings(driverId: number): Promise<number> {
+    const result = await db
+      .select({
+        total: db.$count(bookings.fare), // This is not correct for sum, using sum instead
+      })
+      .from(bookings)
+      .innerJoin(rides, eq(bookings.rideId, rides.id))
+      .where(
+        and(
+          eq(rides.driverId, driverId),
+          eq(bookings.status, "completed" as any)
+        )
+      );
+    
+    // Using a more manual approach since drizzle sum can be tricky to type here
+    const driverBookings = await db.select({ fare: bookings.fare })
+      .from(bookings)
+      .innerJoin(rides, eq(bookings.rideId, rides.id))
+      .where(
+        and(
+          eq(rides.driverId, driverId),
+          eq(bookings.status, "completed" as any)
+        )
+      );
+    
+    return driverBookings.reduce((sum, b) => sum + (b.fare || 0), 0);
   }
 }
 

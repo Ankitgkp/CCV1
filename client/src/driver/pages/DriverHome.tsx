@@ -8,7 +8,7 @@ import { MapboxMap } from "@/lib/map/mapbox/MapboxMap";
 import { mapService } from "@/lib/map/mapbox/MapboxService";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
-import { LogOut, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { api } from "@shared/routes";
 import { useAuth } from "@/hooks/use-auth";
 import type { Booking } from "@shared/schema";
@@ -18,17 +18,25 @@ import { useBookings } from "@/hooks/use-bookings";
 
 export default function DriverHome() {
   const { user } = useAuth();
-  const [isOnline, setIsOnline] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number, heading?: number} | null>(null);
   const [currentRoute, setCurrentRoute] = useState<any>(null);
   const [incomingRequests, setIncomingRequests] = useState<Booking[]>([]);
   const [activeTrip, setActiveTrip] = useState<Booking | null>(null);
   const [tripStage, setTripStage] = useState<"to_pickup" | "arrived" | "in_progress" | "completed">("to_pickup");
+  const [poolJoinRequests, setPoolJoinRequests] = useState<Booking[]>([]);
+  const [poolPassengers, setPoolPassengers] = useState<any[]>([]);
+  const [activeRideId, setActiveRideId] = useState<number | null>(null);
   const prevRequestsRef = useRef<Set<number>>(new Set());
   
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+
+  const { data: earningsData } = useQuery<{ earnings: number }>({
+    queryKey: ["/api/driver/earnings"],
+    refetchInterval: 30000, // Refresh every 30s
+  });
 
   // 1. Get Initial Location
   useEffect(() => {
@@ -49,6 +57,14 @@ export default function DriverHome() {
     }
   }, []);
 
+  const hasAutoStarted = useRef(false);
+  useEffect(() => {
+    if (isOnline && currentLocation && !hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      startShiftMutation.mutate();
+    }
+  }, [isOnline, currentLocation]);
+
   // Send location updates when active trip exists
   useEffect(() => {
     if (!activeTrip || !currentLocation) return;
@@ -62,7 +78,8 @@ export default function DriverHome() {
           body: JSON.stringify({
             bookingId: activeTrip.id,
             lat: currentLocation.lat,
-            lng: currentLocation.lng
+            lng: currentLocation.lng,
+            heading: currentLocation.heading || 0
           })
         });
       } catch (e) {
@@ -79,7 +96,8 @@ export default function DriverHome() {
           async (position) => {
             const newLocation = {
               lat: position.coords.latitude,
-              lng: position.coords.longitude
+              lng: position.coords.longitude,
+              heading: position.coords.heading || 0
             };
             setCurrentLocation(newLocation);
             try {
@@ -89,7 +107,8 @@ export default function DriverHome() {
                 body: JSON.stringify({
                   bookingId: activeTrip.id,
                   lat: newLocation.lat,
-                  lng: newLocation.lng
+                  lng: newLocation.lng,
+                  heading: newLocation.heading
                 })
               });
             } catch (e) {
@@ -186,9 +205,92 @@ export default function DriverHome() {
       setTimeout(() => {
         setActiveTrip(null);
         setTripStage("to_pickup");
+        setPoolJoinRequests([]);
+        setPoolPassengers([]);
+        setActiveRideId(null);
       }, 2000);
     } catch (e) {
       toast({ title: "Failed to complete trip", variant: "destructive" });
+    }
+  };
+
+  // Poll for pool join requests when active trip is a pool
+  useEffect(() => {
+    if (!activeTrip || !activeTrip.isPool || !activeTrip.rideId) return;
+
+    const fetchPoolRequests = async () => {
+      try {
+        const res = await fetch(`/api/pools/requests/${activeTrip.rideId}`);
+        const requests = await res.json();
+        
+        // Notify for new requests
+        requests.forEach((req: any) => {
+          if (!poolJoinRequests.find(r => r.id === req.id)) {
+            toast({ 
+              title: "🚗 Pool Join Request!", 
+              description: `Someone wants to join your pool`,
+              duration: 5000
+            });
+          }
+        });
+        
+        setPoolJoinRequests(requests);
+      } catch (e) {
+        console.error("Failed to fetch pool requests", e);
+      }
+    };
+
+    fetchPoolRequests();
+    const interval = setInterval(fetchPoolRequests, 5000);
+    return () => clearInterval(interval);
+  }, [activeTrip]);
+
+  // Poll for pool passengers to display in trip
+  useEffect(() => {
+    if (!activeTrip || !activeTrip.isPool) return;
+
+    const fetchPoolPassengers = async () => {
+      try {
+        const res = await fetch(`/api/pools/${activeTrip.id}/passengers`);
+        const passengers = await res.json();
+        setPoolPassengers(passengers);
+      } catch (e) {
+        console.error("Failed to fetch pool passengers", e);
+      }
+    };
+
+    fetchPoolPassengers();
+    const interval = setInterval(fetchPoolPassengers, 5000);
+    return () => clearInterval(interval);
+  }, [activeTrip, poolJoinRequests]); // Refresh when join requests change (after accept)
+
+  // Handle accept pool join request
+  const handleAcceptPoolRequest = async (bookingId: number) => {
+    try {
+      await fetch(`/api/pools/respond/${bookingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept", pricePerKm: 10 })
+      });
+      setPoolJoinRequests(prev => prev.filter(r => r.id !== bookingId));
+      toast({ title: "Passenger Added!", description: "New passenger joined your pool", className: "bg-green-500 text-white border-none" });
+    } catch (e) {
+      toast({ title: "Failed to accept", variant: "destructive" });
+    }
+  };
+
+  // Handle reject pool join request
+  const handleRejectPoolRequest = async (bookingId: number) => {
+    try {
+      await fetch(`/api/pools/respond/${bookingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject" })
+      });
+      setPoolJoinRequests(prev => prev.filter(r => r.id !== bookingId));
+      toast({ title: "Request Declined" });
+    } catch (e) {
+      toast({ title: "Failed to reject", variant: "destructive" });
     }
   };
 
@@ -196,20 +298,29 @@ export default function DriverHome() {
     mutationFn: async () => {
         if (!user || !currentLocation) return;
         
+        // Get vehicle info from localStorage (set during driver registration)
+        const savedVehicle = localStorage.getItem('driverVehicle');
+        const vehicle = savedVehicle ? JSON.parse(savedVehicle) : {
+            carModel: "Unknown Model",
+            carNumber: "XX-00-XX-0000",
+            carColor: "Unknown",
+            capacity: 4
+        };
+        
         // Create an "Idle" Ride (Empty Container for Metadata)
         const res = await apiRequest("POST", "/api/rides", {
-            driverId: user.id, // REAL ID
-            carModel: "Toyota Innova", // Mock Car
-            carNumber: "DL-1P-5555",
+            driverId: user.id,
+            carModel: vehicle.carModel,
+            carNumber: vehicle.carNumber,
             latitude: currentLocation.lat,
             longitude: currentLocation.lng,
             heading: 0,
             isAvailable: true,
             type: "pool",
             pricePerKm: 12,
-            capacity: 6,
+            capacity: vehicle.capacity,
             occupied: 0,
-            status: "empty", // Idle state
+            status: "empty",
             finalDestination: null,
             currentRouteGeometry: null
         });
@@ -238,26 +349,40 @@ export default function DriverHome() {
   })
 
   return (
-    <div className="h-screen w-full relative bg-slate-50 flex flex-col">
-        {/* Header */}
-        <div className="absolute top-0 left-0 right-0 z-20 bg-white/90 backdrop-blur p-4 shadow-sm flex justify-between items-center">
-            <div className="flex items-center gap-3">
-                <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                <h1 className="font-bold text-lg">{isOnline ? (incomingRequests.length > 0 ? `${incomingRequests.length} Requests` : "Online (Idle)") : "Offline"}</h1>
+    <div className="h-[100dvh] w-full relative bg-slate-50 overflow-hidden">
+        {/* Header - Balanced 3-column layout for perfect centering */}
+        <div className="absolute top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-6 py-5 shadow-sm flex items-center border-b border-slate-100">
+            {/* Left Column - Empty spacer for symmetry */}
+            <div className="flex-1"></div>
+
+            {/* Center Column - Earnings Pill */}
+            <div className="flex-1 flex justify-center">
+                <div className="bg-slate-900 px-4 py-2.5 rounded-full flex items-center gap-2 shadow-lg shadow-black/10 transition-colors">
+                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow-sm">
+                        <span className="text-white text-[10px] font-bold">₹</span>
+                    </div>
+                    <p className="font-extrabold text-white text-sm">₹{earningsData?.earnings || 0}</p>
+                </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Right Column - Actions balanced with left */}
+            <div className="flex-1 flex items-center justify-end gap-3">
+                <span className={`text-[10px] font-black tracking-tighter ${isOnline ? 'text-green-500' : 'text-slate-400'} uppercase transition-colors`}>
+                    {isOnline ? "Online" : "Go Online"}
+                </span>
                 <Switch 
                     checked={isOnline}
                     onCheckedChange={(checked) => {
                         if (checked) startShiftMutation.mutate();
                         else goOfflineMutation.mutate();
                     }}
+                    className="data-[state=checked]:bg-green-500"
                 />
             </div>
         </div>
 
-        {/* Map Area */}
-        <div className="flex-1 relative">
+        {/* Map Area - Filling absolute background */}
+        <div className="absolute inset-0 z-0">
             {currentLocation && (
                 <MapboxMap 
                     center={currentLocation}
@@ -381,6 +506,86 @@ export default function DriverHome() {
                         <p className="text-xl font-bold text-green-600">₹{activeTrip.fare}</p>
                     </div>
                 </div>
+                
+                {/* Pool Badge & Join Requests */}
+                {activeTrip.isPool && (
+                  <>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full">🚗 POOL RIDE</span>
+                        {poolJoinRequests.length > 0 && (
+                          <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-1 rounded-full animate-pulse">
+                            {poolJoinRequests.length} Request{poolJoinRequests.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Pool Join Requests */}
+                    {poolJoinRequests.length > 0 && (
+                      <div className="border-2 border-orange-200 bg-orange-50 p-3 rounded-2xl mb-4 space-y-3">
+                        <p className="text-xs font-bold text-orange-700 uppercase">Pending Join Requests</p>
+                        {poolJoinRequests.map((req) => (
+                          <div key={req.id} className="bg-white p-3 rounded-xl border border-orange-100">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex-1">
+                                <p className="text-xs text-slate-500">📍 <span className="font-medium">{req.pickupAddress}</span></p>
+                                <p className="text-xs text-slate-500">🎯 <span className="font-medium">{req.dropoffAddress}</span></p>
+                              </div>
+                              <span className="text-sm font-bold text-green-600">+₹{Math.round((req.distance || 0) * 10)}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button 
+                                onClick={() => handleAcceptPoolRequest(req.id)}
+                                className="flex-1 h-10 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg"
+                              >
+                                ✓ Accept
+                              </Button>
+                              <Button 
+                                onClick={() => handleRejectPoolRequest(req.id)}
+                                variant="outline"
+                                className="flex-1 h-10 border-red-200 text-red-600 hover:bg-red-50 text-sm font-bold rounded-lg"
+                              >
+                                ✗ Decline
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* All Pool Passengers */}
+                    {poolPassengers.length > 0 && (
+                      <div className="bg-blue-50 p-3 rounded-2xl mb-4">
+                        <p className="text-xs font-bold text-blue-700 uppercase mb-2">
+                          Pool Passengers ({poolPassengers.length + 1})
+                        </p>
+                        
+                        {/* Original passenger (trip owner) */}
+                        <div className="flex items-center gap-2 bg-white p-2 rounded-lg mb-2 border-2 border-blue-200">
+                          <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">1</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-800 truncate">{activeTrip.pickupAddress}</p>
+                            <p className="text-[10px] text-slate-500 truncate">→ {activeTrip.dropoffAddress}</p>
+                          </div>
+                          <span className="text-xs font-bold text-blue-600">₹{activeTrip.fare}</span>
+                        </div>
+
+                        {/* Additional passengers */}
+                        {poolPassengers.map((passenger, index) => (
+                          <div key={passenger.id} className="flex items-center gap-2 bg-white p-2 rounded-lg mb-1 border border-blue-100">
+                            <div className="w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center text-xs font-bold">{index + 2}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-slate-800 truncate">{passenger.pickupAddress}</p>
+                              <p className="text-[10px] text-slate-500 truncate">→ {passenger.dropoffAddress}</p>
+                            </div>
+                            <span className="text-xs font-bold text-green-600">₹{passenger.fare || Math.round((passenger.distance || 0) * 10)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
                 
                 {/* Action Buttons based on stage */}
                 <div className="flex gap-3">

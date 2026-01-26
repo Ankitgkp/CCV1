@@ -18,11 +18,13 @@ export interface Route {
   
 export interface IMapService {
     initialize(container: HTMLElement, center?: Coordinates): void;
-    addMarker(lng: number, lat: number, type?: "pickup" | "dropoff" | "driver"): void;
+    addMarker(lng: number, lat: number, type?: "pickup" | "dropoff" | "driver", heading?: number): void;
+    syncMarkers(markers: { lat: number; lng: number; type: "pickup" | "dropoff" | "driver"; heading?: number }[]): void;
     clearMarkers(): void;
     drawRoute(route: any): void;
     fitBounds(padding?: number): void;
     flyTo(coords: Coordinates): void;
+    resize(): void;
     destory(): void;
     on(event: string, callback: (e: any) => void): void;
 }

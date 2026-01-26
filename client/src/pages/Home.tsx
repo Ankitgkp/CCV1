@@ -44,8 +44,13 @@ export default function Home() {
   const [tripOtp, setTripOtp] = useState<string>("");
   const [tripStatus, setTripStatus] = useState<"accepted" | "arrived" | "in_progress" | "completed">("accepted");
   const [tripFare, setTripFare] = useState<number>(0);
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number; heading?: number } | null>(null);
   const [driverEta, setDriverEta] = useState<number | null>(null);
+  const [tripRoute, setTripRoute] = useState<any>(null); // Dynamic route for trip phase
+  const [rideMode, setRideMode] = useState<"pool" | "private">("pool"); // Default to pool
+  const [availablePools, setAvailablePools] = useState<any[]>([]);
+  const [isPool, setIsPool] = useState(true); // Track if user wants pool
+  const [poolPassengers, setPoolPassengers] = useState<any[]>([]); // Other passengers in pool
   
   const { data: user } = useQuery<User>({
     queryKey: [api.user.getProfile.path],
@@ -157,9 +162,9 @@ export default function Home() {
     setRoute(routeData.geometry);
     setDistance(routeData.distance / 1000);
 
-    // 2. Check for Pooling Matches
+    // 2. Check for Available Pools to join
     try {
-        const res = await fetch("/api/rides/match", {
+        const res = await fetch("/api/pools/available", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -169,20 +174,19 @@ export default function Home() {
                 dropoffLng: dropoffCoords.lng
             })
         });
-        const matches: Ride[] = await res.json();
+        const pools = await res.json();
+        setAvailablePools(pools);
         
-        if (matches.length > 0) {
-            // Logic to show matched rides
+        if (pools.length > 0) {
             toast({ 
-                title: `Found ${matches.length} existing pools!`, 
-                description: "You can join these rides to save money.",
-                duration: 5000 
+                title: `${pools.length} pool${pools.length > 1 ? 's' : ''} available!`, 
+                description: "Join to save up to 50%",
+                duration: 4000 
             });
-            // For now, we will add them to the top of the list or handle them specifically
-            // Ideally, we switch to a 'matches' step.
         }
     } catch (e) {
-        console.error("Match check failed", e);
+        console.error("Pool check failed", e);
+        setAvailablePools([]);
     }
 
     setStep("select");
@@ -201,11 +205,22 @@ export default function Home() {
         dropoffLat: dropoffCoords.lat,
         dropoffLng: dropoffCoords.lng,
         fare: Math.round(selectedRide.pricePerKm * distance),
-        otp: "4567",
-        status: "pending"
-      });
+        otp: Math.floor(1000 + Math.random() * 9000).toString(),
+        status: "pending",
+        isPool: isPool,
+        distance: distance,
+        joinStatus: isPool ? "owner" : null, // First user is pool owner
+      } as any);
       setBookingId(booking.id);
       setStep("waiting");
+      
+      if (isPool) {
+        toast({ 
+          title: "Pool Created!", 
+          description: "Others can now join your ride",
+          className: "bg-green-500 text-white border-none"
+        });
+      }
     } catch (e) {
       console.error(e);
       toast({ title: "Booking failed", variant: "destructive" });
@@ -268,22 +283,45 @@ export default function Home() {
         const location = await res.json();
         setDriverLocation({ lat: location.lat, lng: location.lng });
         
-        // Calculate ETA if we have pickup coords
-        if (pickupCoords && tripStatus === "accepted") {
-          const distanceKm = calculateDistance(
-            location.lat, location.lng,
-            pickupCoords.lat, pickupCoords.lng
-          );
-          // Assume avg speed 30 km/h in city
-          const etaMinutes = Math.max(1, Math.round((distanceKm / 30) * 60));
-          setDriverEta(etaMinutes);
-        } else if (dropoffCoords && tripStatus === "in_progress") {
-          const distanceKm = calculateDistance(
-            location.lat, location.lng,
-            dropoffCoords.lat, dropoffCoords.lng
-          );
-          const etaMinutes = Math.max(1, Math.round((distanceKm / 30) * 60));
-          setDriverEta(etaMinutes);
+        // Calculate ETA and route based on trip status
+        if (tripStatus === "accepted" || tripStatus === "arrived") {
+          // Driver to pickup route
+          if (pickupCoords) {
+            const distanceKm = calculateDistance(
+              location.lat, location.lng,
+              pickupCoords.lat, pickupCoords.lng
+            );
+            const etaMinutes = Math.max(1, Math.round((distanceKm / 30) * 60));
+            setDriverEta(etaMinutes);
+            
+            // Calculate route from driver to pickup
+            const routeData = await mapService.getRoute(
+              { lat: location.lat, lng: location.lng },
+              pickupCoords
+            );
+            if (routeData) {
+              setTripRoute(routeData.geometry);
+            }
+          }
+        } else if (tripStatus === "in_progress") {
+          // Driver to dropoff route
+          if (dropoffCoords) {
+            const distanceKm = calculateDistance(
+              location.lat, location.lng,
+              dropoffCoords.lat, dropoffCoords.lng
+            );
+            const etaMinutes = Math.max(1, Math.round((distanceKm / 30) * 60));
+            setDriverEta(etaMinutes);
+            
+            // Calculate route from driver to dropoff
+            const routeData = await mapService.getRoute(
+              { lat: location.lat, lng: location.lng },
+              dropoffCoords
+            );
+            if (routeData) {
+              setTripRoute(routeData.geometry);
+            }
+          }
         }
         return location;
       } catch (e) {
@@ -292,6 +330,34 @@ export default function Home() {
     },
     refetchInterval: 3000,
     enabled: step === "trip" && !!bookingId && tripStatus !== "completed"
+  });
+
+  // Poll for pool passengers when in pool trip
+  useQuery({
+    queryKey: ["pool-passengers", bookingId],
+    queryFn: async () => {
+      if (!bookingId || !isPool) return [];
+      try {
+        const res = await fetch(`/api/pools/${bookingId}/passengers`);
+        const passengers = await res.json();
+        
+        // Notify when new passenger joins
+        if (passengers.length > poolPassengers.length && poolPassengers.length > 0) {
+          toast({ 
+            title: "🎉 New passenger joined!", 
+            description: "Someone joined your pool ride",
+            className: "bg-green-500 text-white border-none"
+          });
+        }
+        
+        setPoolPassengers(passengers);
+        return passengers;
+      } catch (e) {
+        return [];
+      }
+    },
+    refetchInterval: 5000,
+    enabled: step === "trip" && !!bookingId && isPool
   });
 
   // Haversine distance calculation
@@ -312,7 +378,7 @@ export default function Home() {
   if (dropoffCoords) markers.push({ ...dropoffCoords, type: "dropoff" as const });
   // Real driver location from tracking
   if (step === "trip" && driverLocation) {
-    markers.push({ ...driverLocation, type: "driver" as const });
+    markers.push({ ...driverLocation, type: "driver" as const, heading: driverLocation.heading });
   }
 
   return (
@@ -321,7 +387,7 @@ export default function Home() {
       <div className="flex-1 relative z-0">
         <MapboxMap 
             markers={markers}
-            route={route}
+            route={step === "trip" && tripRoute ? tripRoute : route}
         />
       </div>
 
@@ -434,9 +500,9 @@ export default function Home() {
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
-            className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] p-6 max-h-[85vh] overflow-hidden flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.1)] pb-safe"
+            className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] p-6 h-[85vh] flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.1)]"
           >
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center gap-4 mb-4">
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -446,21 +512,87 @@ export default function Home() {
                 <ArrowLeft className="w-6 h-6" />
               </Button>
               <div>
-                  <h3 className="text-xl font-bold">Recommended Rides</h3>
+                  <h3 className="text-xl font-bold">Choose Ride</h3>
                   <p className="text-xs text-slate-500 font-medium">Trip distance: {distance.toFixed(1)} km</p>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-hide mb-20">
-              {rides?.map((ride) => (
+            {/* Pool/Private Tabs */}
+            <div className="flex bg-slate-100 p-1 rounded-2xl mb-4">
+              <button
+                onClick={() => setRideMode("pool")}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${rideMode === "pool" ? "bg-black text-white shadow-lg" : "text-slate-600"}`}
+              >
+                🚗 Pool
+              </button>
+              <button
+                onClick={() => setRideMode("private")}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${rideMode === "private" ? "bg-black text-white shadow-lg" : "text-slate-600"}`}
+              >
+                🚙 Private
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-2 scrollbar-hide pb-32">
+              {rideMode === "pool" && availablePools.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-bold text-green-600 uppercase mb-2">Join Existing Pool</p>
+                  {availablePools.map((pool: any) => (
+                    <div 
+                      key={pool.booking.id}
+                      onClick={() => {
+                        setSelectedRide(pool.ride);
+                        setIsPool(true);
+                      }}
+                      className={`p-4 rounded-2xl border-2 mb-2 cursor-pointer transition-all ${selectedRide?.id === pool.ride?.id ? "border-green-500 bg-green-50" : "border-slate-100 hover:border-slate-200"}`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-bold text-slate-900">{pool.ride?.carModel}</p>
+                          <p className="text-xs text-slate-500">{pool.availableSeats} seats available</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-green-600">~₹{Math.round(distance * (pool.ride?.pricePerKm || 10) / 2)}</p>
+                          <p className="text-[10px] text-slate-400">~50% cheaper</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-start gap-2">
+                        <span className="text-xs text-slate-500">📍 {pool.pickupDistance}km away</span>
+                        {parseFloat(pool.pickupDistance) > 0.3 && (
+                          <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
+                            💡 Walk ~{Math.round(parseFloat(pool.pickupDistance) * 12)}min to pickup for faster ride
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {rideMode === "pool" && (
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">
+                  {availablePools.length > 0 ? "Or Create New Pool" : "Select Ride & Create Pool"}
+                </p>
+              )}
+
+              {rides?.filter(r => rideMode === "pool" ? r.type === "pool" : true).map((ride) => (
                 <RideCard
                   key={ride.id}
                   ride={ride}
                   selected={selectedRide?.id === ride.id}
-                  onSelect={setSelectedRide}
+                  onSelect={(r) => {
+                    setSelectedRide(r);
+                    setIsPool(rideMode === "pool");
+                  }}
                   distance={distance}
                 />
               ))}
+
+              {(!rides || rides.filter(r => rideMode === "pool" ? r.type === "pool" : true).length === 0) && (
+                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <p className="text-slate-500 text-sm">No {rideMode} rides available currently</p>
+                </div>
+              )}
             </div>
 
             <div className="absolute bottom-0 left-0 right-0 p-6 bg-white border-t border-slate-50">
@@ -478,7 +610,7 @@ export default function Home() {
                 onClick={handleBooking}
                 className="w-full h-16 bg-black text-white rounded-2xl text-lg font-bold shadow-xl shadow-black/10"
               >
-                {createBooking.isPending ? "Requesting..." : `Book ${selectedRide?.type || 'Ride'}`}
+                {createBooking.isPending ? "Requesting..." : isPool ? `Book Pool Ride` : `Book ${selectedRide?.type || 'Ride'}`}
               </Button>
             </div>
           </motion.div>
@@ -568,6 +700,24 @@ export default function Home() {
                   <p className="text-[10px] font-bold text-slate-400 uppercase">Distance</p>
                   <p className="text-lg font-bold text-slate-700">{distance.toFixed(1)} km</p>
                 </div>
+              </div>
+            )}
+
+            {/* Pool Passengers Display */}
+            {isPool && poolPassengers.length > 0 && (
+              <div className="bg-blue-50 p-3 rounded-2xl mb-4 border border-blue-100">
+                <p className="text-xs font-bold text-blue-700 uppercase mb-2">
+                  🚗 Pool Ride • {poolPassengers.length + 1} Passengers
+                </p>
+                {poolPassengers.map((passenger, index) => (
+                  <div key={passenger.id} className="flex items-center gap-2 bg-white p-2 rounded-lg mb-1 border border-blue-50">
+                    <div className="w-5 h-5 bg-green-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold">{index + 2}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-medium text-slate-700 truncate">{passenger.pickupAddress}</p>
+                    </div>
+                    <span className="text-[10px] font-bold text-green-600">+₹{passenger.fare || 0}</span>
+                  </div>
+                ))}
               </div>
             )}
 

@@ -45,6 +45,11 @@ export const bookings = pgTable("bookings", {
   otp: text("otp"),
   fare: integer("fare"),
   createdAt: timestamp("created_at").defaultNow(),
+  // Pool-related fields
+  isPool: boolean("is_pool").default(false),
+  poolId: integer("pool_id"), // Groups bookings in same pool (references first booking id)
+  distance: doublePrecision("distance"), // km for proportional fare
+  joinStatus: text("join_status", { enum: ["owner", "pending", "accepted", "rejected"] }), // Pool join status
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });

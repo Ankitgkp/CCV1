@@ -114,13 +114,11 @@ export async function registerRoutes(
     }
   });
 
-  // Rides routes
   app.get(api.rides.list.path, async (req, res) => {
     const rides = await storage.getRides();
     res.json(rides);
   });
 
-  // Bookings routes
   app.post(api.bookings.create.path, async (req, res) => {
     try {
       const input = api.bookings.create.input.parse(req.body);
@@ -131,7 +129,10 @@ export async function registerRoutes(
         userId: input.userId ?? null,
         rideId: input.rideId ?? null,
         fare: input.fare ?? null,
-      });
+        isPool: input.isPool ?? null,
+        distance: input.distance ?? null,
+        joinStatus: input.joinStatus ?? null,
+      } as any);
       res.status(201).json(booking);
     } catch (err) {
       console.error("Booking Creation Error:", err);
@@ -153,7 +154,6 @@ export async function registerRoutes(
     const booking = await storage.getBooking(id);
     if (!booking) return res.status(404).json({ message: "Booking not found" });
     
-    // If booking has a rideId, fetch ride and driver details
     let ride = null;
     let driver = null;
     if (booking.rideId) {
@@ -202,23 +202,21 @@ export async function registerRoutes(
   });
 
   // Driver location tracking - in-memory store for simplicity
-  const driverLocations: Map<number, { lat: number; lng: number; updatedAt: number }> = new Map();
+  const driverLocations: Map<number, { lat: number; lng: number; heading: number; updatedAt: number }> = new Map();
 
-  // Driver updates their location
   app.post("/api/driver/location", async (req, res) => {
     try {
-      const { bookingId, lat, lng } = req.body;
+      const { bookingId, lat, lng, heading } = req.body;
       if (!bookingId || lat === undefined || lng === undefined) {
         return res.status(400).json({ message: "bookingId, lat, lng required" });
       }
-      driverLocations.set(bookingId, { lat, lng, updatedAt: Date.now() });
+      driverLocations.set(bookingId, { lat, lng, heading: heading || 0, updatedAt: Date.now() });
       res.json({ success: true });
     } catch (err) {
       res.status(400).json({ message: "Failed to update location" });
     }
   });
 
-  // Passenger gets driver location
   app.get("/api/driver/location/:bookingId", async (req, res) => {
     const bookingId = parseInt(req.params.bookingId);
     const location = driverLocations.get(bookingId);
@@ -228,10 +226,15 @@ export async function registerRoutes(
     res.json(location);
   });
 
+  app.get("/api/driver/earnings", async (req: any, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const earnings = await storage.getDriverEarnings(req.user.id);
+    res.json({ earnings });
+  });
+
   // Seed data
   await seedDatabase();
 
-  // Create Ride Route (For Driver Going Online)
   app.post("/api/rides", async (req, res) => {
     try {
       // In a real app, validate with Zod
@@ -244,7 +247,6 @@ export async function registerRoutes(
     }
   });
 
-  // Match Rides Route
   app.post("/api/rides/match", async (req, res) => {
     try {
       const schema = z.object({
@@ -268,11 +270,174 @@ export async function registerRoutes(
     }
   });
 
+
+  const calculateHaversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  app.post("/api/pools/available", async (req, res) => {
+    try {
+      const schema = z.object({
+        pickupLat: z.number(),
+        pickupLng: z.number(),
+        dropoffLat: z.number(),
+        dropoffLng: z.number(),
+      });
+      const { pickupLat, pickupLng, dropoffLat, dropoffLng } = schema.parse(req.body);
+
+      // Get all active pool bookings that are accepted (in progress)
+      const allBookings = await storage.getBookingsByStatus("accepted");
+      const poolBookings = allBookings.filter(b => b.isPool && b.joinStatus === "owner");
+
+      const availablePools = [];
+      for (const booking of poolBookings) {
+        // Check if pickup is within 4km of pool's route
+        const pickupDistance = calculateHaversine(pickupLat, pickupLng, booking.pickupLat, booking.pickupLng);
+        const dropoffDistance = calculateHaversine(dropoffLat, dropoffLng, booking.dropoffLat, booking.dropoffLng);
+        
+        // Must be within 4km of pickup and dropoff points
+        if (pickupDistance < 4 && dropoffDistance < 4) {
+          const ride = booking.rideId ? await storage.getRide(booking.rideId) : null;
+          const driver = ride?.driverId ? await storage.getUser(ride.driverId) : null;
+          
+          if (ride && ride.occupied < ride.capacity) {
+            availablePools.push({
+              booking,
+              ride,
+              driver,
+              pickupDistance: pickupDistance.toFixed(1),
+              dropoffDistance: dropoffDistance.toFixed(1),
+              availableSeats: ride.capacity - ride.occupied,
+            });
+          }
+        }
+      }
+
+      res.json(availablePools);
+    } catch (err) {
+      console.error("Find Pools Error:", err);
+      res.status(400).json({ message: "Failed to find pools" });
+    }
+  });
+
+  // Get all passengers in a pool
+  app.get("/api/pools/:poolId/passengers", async (req, res) => {
+    try {
+      const poolId = parseInt(req.params.poolId);
+      const passengers = await storage.getPoolPassengers(poolId);
+      res.json(passengers);
+    } catch (err) {
+      res.status(400).json({ message: "Failed to get passengers" });
+    }
+  });
+
+  app.post("/api/pools/join-request", async (req, res) => {
+    try {
+      const schema = z.object({
+        poolId: z.number(), 
+        userId: z.number(),
+        pickupAddress: z.string(),
+        dropoffAddress: z.string(),
+        pickupLat: z.number(),
+        pickupLng: z.number(),
+        dropoffLat: z.number(),
+        dropoffLng: z.number(),
+        distance: z.number(), 
+      });
+      const data = schema.parse(req.body);
+
+      const originalBooking = await storage.getBooking(data.poolId);
+      if (!originalBooking || !originalBooking.isPool) {
+        return res.status(404).json({ message: "Pool not found" });
+      }
+
+      const booking = await storage.createBooking({
+        userId: data.userId,
+        rideId: originalBooking.rideId,
+        pickupAddress: data.pickupAddress,
+        dropoffAddress: data.dropoffAddress,
+        pickupLat: data.pickupLat,
+        pickupLng: data.pickupLng,
+        dropoffLat: data.dropoffLat,
+        dropoffLng: data.dropoffLng,
+        status: "pending",
+        otp: Math.floor(1000 + Math.random() * 9000).toString(),
+        fare: 0,
+        isPool: true,
+        poolId: data.poolId,
+        distance: data.distance,
+        joinStatus: "pending",
+      });
+
+      res.status(201).json(booking);
+    } catch (err) {
+      console.error("Join Pool Error:", err);
+      res.status(400).json({ message: "Failed to create join request" });
+    }
+  });
+
+  app.patch("/api/pools/respond/:bookingId", async (req, res) => {
+    try {
+      const bookingId = parseInt(req.params.bookingId);
+      const schema = z.object({
+        action: z.enum(["accept", "reject"]),
+        pricePerKm: z.number().optional(), // For fare calculation
+      });
+      const { action, pricePerKm = 10 } = schema.parse(req.body);
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.joinStatus !== "pending") {
+        return res.status(404).json({ message: "Join request not found" });
+      }
+
+      if (action === "accept") {
+        const fare = Math.round((booking.distance || 0) * pricePerKm);
+        
+        await storage.updateBookingPool(bookingId, {
+          joinStatus: "accepted",
+          status: "accepted",
+          fare,
+        });
+
+        if (booking.rideId) {
+          await storage.incrementRideOccupied(booking.rideId);
+        }
+
+        res.json({ message: "Join request accepted", fare });
+      } else {
+        await storage.updateBookingPool(bookingId, {
+          joinStatus: "rejected",
+          status: "cancelled",
+        });
+        res.json({ message: "Join request rejected" });
+      }
+    } catch (err) {
+      console.error("Respond to Join Error:", err);
+      res.status(400).json({ message: "Failed to respond to join request" });
+    }
+  });
+
+  app.get("/api/pools/requests/:rideId", async (req, res) => {
+    try {
+      const rideId = parseInt(req.params.rideId);
+      const requests = await storage.getPendingPoolRequests(rideId);
+      res.json(requests);
+    } catch (err) {
+      res.status(400).json({ message: "Failed to get requests" });
+    }
+  });
+
   return httpServer;
 }
 
 async function seedDatabase() {
-  // Seed User
   const users = await storage.getUser(1);
   if (!users) {
     await storage.createUser({
@@ -335,4 +500,5 @@ async function seedDatabase() {
       currentRouteGeometry: null,
     });
   }
+
 }

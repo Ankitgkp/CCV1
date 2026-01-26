@@ -16,7 +16,7 @@ mapboxgl.accessToken = MAPBOX_TOKEN;
 
 export class MapboxService implements IMapService, IAutocompleteService, IDirectionsService {
   private map: mapboxgl.Map | null = null;
-  private markers: mapboxgl.Marker[] = [];
+  private markers: Map<string, mapboxgl.Marker> = new Map();
 
   initialize(container: HTMLElement, center: Coordinates = { lat: 0, lng: 0 }) {
     this.map = new mapboxgl.Map({
@@ -30,29 +30,81 @@ export class MapboxService implements IMapService, IAutocompleteService, IDirect
     this.map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "bottom-right");
   }
 
-  addMarker(lng: number, lat: number, type: "pickup" | "dropoff" | "driver" = "pickup") {
-    if (!this.map) return;
-    
-    const el = document.createElement("div");
-    el.className = `marker-${type}`;
-    // Simple styling for marker element, can be improved with CSS classes
-    el.style.width = type === "driver" ? "24px" : "16px";
-    el.style.height = type === "driver" ? "24px" : "16px";
-    el.style.backgroundColor = type === "dropoff" ? "black" : (type === "pickup" ? "black" : "#10b981");
-    el.style.borderRadius = "50%";
-    el.style.border = "3px solid white";
-    el.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+  resize() {
+    if (this.map) {
+      this.map.resize();
+    }
+  }
 
-    const marker = new mapboxgl.Marker(el)
-      .setLngLat([lng, lat])
-      .addTo(this.map);
-    
-    this.markers.push(marker);
+  syncMarkers(markerDefs: { lat: number; lng: number; type: "pickup" | "dropoff" | "driver"; heading?: number }[]) {
+    if (!this.map) return;
+
+    const currentKeys = new Set(this.markers.keys());
+    const nextKeys = new Set<string>();
+
+    markerDefs.forEach((m, index) => {
+      // Use type + index as key for stability (since we usually have one of each type in trip view)
+      const key = `${m.type}-${index}`;
+      nextKeys.add(key);
+
+      const existingMarker = this.markers.get(key);
+
+      if (existingMarker) {
+        // Update existing marker position
+        existingMarker.setLngLat([m.lng, m.lat]);
+        
+        // Update rotation for driver
+        if (m.type === "driver") {
+          const el = existingMarker.getElement();
+          el.style.transform = `rotate(${m.heading || 0}deg)`;
+        }
+      } else {
+        // Create new marker
+        const el = document.createElement("div");
+        el.className = `marker-${m.type}`;
+        
+        if (m.type === "driver") {
+          el.style.width = "40px";
+          el.style.height = "40px";
+          el.style.backgroundImage = "url('/car-marker.png')";
+          el.style.backgroundSize = "contain";
+          el.style.backgroundRepeat = "no-repeat";
+          el.style.backgroundPosition = "center";
+          el.style.transition = "transform 0.5s ease-out, left 0.5s ease-out, top 0.5s ease-out";
+          el.style.transform = `rotate(${m.heading || 0}deg)`;
+        } else {
+          el.style.width = "16px";
+          el.style.height = "16px";
+          el.style.backgroundColor = "black";
+          el.style.borderRadius = "50%";
+          el.style.border = "3px solid white";
+          el.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+        }
+
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([m.lng, m.lat])
+          .addTo(this.map!);
+        
+        this.markers.set(key, marker);
+      }
+    });
+
+    // Remove markers that are no longer present
+    currentKeys.forEach(key => {
+      if (!nextKeys.has(key)) {
+        this.markers.get(key)?.remove();
+        this.markers.delete(key);
+      }
+    });
+  }
+
+  addMarker(lng: number, lat: number, type: "pickup" | "dropoff" | "driver" = "pickup", heading: number = 0) {
+    this.syncMarkers([{ lat, lng, type, heading }]);
   }
 
   clearMarkers() {
     this.markers.forEach(m => m.remove());
-    this.markers = [];
+    this.markers.clear();
   }
 
   drawRoute(route: any) {
@@ -97,7 +149,7 @@ export class MapboxService implements IMapService, IAutocompleteService, IDirect
   }
 
   fitBounds(padding: number = 50) {
-    if (!this.map || this.markers.length === 0) return;
+    if (!this.map || this.markers.size === 0) return;
 
     const bounds = new mapboxgl.LngLatBounds();
     this.markers.forEach(m => bounds.extend(m.getLngLat()));
