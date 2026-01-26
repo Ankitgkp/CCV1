@@ -17,6 +17,7 @@ export interface IStorage {
   createBooking(booking: Omit<Booking, "id" | "createdAt">): Promise<Booking>;
   getBooking(id: number): Promise<Booking | undefined>;
   updateBookingStatus(id: number, status: string, otp?: string): Promise<Booking>;
+  getDriverEarnings(driverId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -145,6 +146,34 @@ export class DatabaseStorage implements IStorage {
         eq(bookings.joinStatus, "pending" as any)
       )
     );
+  }
+
+  async getDriverEarnings(driverId: number): Promise<number> {
+    const result = await db
+      .select({
+        total: db.$count(bookings.fare), // This is not correct for sum, using sum instead
+      })
+      .from(bookings)
+      .innerJoin(rides, eq(bookings.rideId, rides.id))
+      .where(
+        and(
+          eq(rides.driverId, driverId),
+          eq(bookings.status, "completed" as any)
+        )
+      );
+    
+    // Using a more manual approach since drizzle sum can be tricky to type here
+    const driverBookings = await db.select({ fare: bookings.fare })
+      .from(bookings)
+      .innerJoin(rides, eq(bookings.rideId, rides.id))
+      .where(
+        and(
+          eq(rides.driverId, driverId),
+          eq(bookings.status, "completed" as any)
+        )
+      );
+    
+    return driverBookings.reduce((sum, b) => sum + (b.fare || 0), 0);
   }
 }
 

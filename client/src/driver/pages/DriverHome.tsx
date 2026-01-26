@@ -8,7 +8,7 @@ import { MapboxMap } from "@/lib/map/mapbox/MapboxMap";
 import { mapService } from "@/lib/map/mapbox/MapboxService";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
-import { LogOut, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { api } from "@shared/routes";
 import { useAuth } from "@/hooks/use-auth";
 import type { Booking } from "@shared/schema";
@@ -18,8 +18,8 @@ import { useBookings } from "@/hooks/use-bookings";
 
 export default function DriverHome() {
   const { user } = useAuth();
-  const [isOnline, setIsOnline] = useState(false);
-  const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+  const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number, heading?: number} | null>(null);
   const [currentRoute, setCurrentRoute] = useState<any>(null);
   const [incomingRequests, setIncomingRequests] = useState<Booking[]>([]);
   const [activeTrip, setActiveTrip] = useState<Booking | null>(null);
@@ -32,6 +32,11 @@ export default function DriverHome() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+
+  const { data: earningsData } = useQuery<{ earnings: number }>({
+    queryKey: ["/api/driver/earnings"],
+    refetchInterval: 30000, // Refresh every 30s
+  });
 
   // 1. Get Initial Location
   useEffect(() => {
@@ -52,6 +57,14 @@ export default function DriverHome() {
     }
   }, []);
 
+  const hasAutoStarted = useRef(false);
+  useEffect(() => {
+    if (isOnline && currentLocation && !hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      startShiftMutation.mutate();
+    }
+  }, [isOnline, currentLocation]);
+
   // Send location updates when active trip exists
   useEffect(() => {
     if (!activeTrip || !currentLocation) return;
@@ -65,7 +78,8 @@ export default function DriverHome() {
           body: JSON.stringify({
             bookingId: activeTrip.id,
             lat: currentLocation.lat,
-            lng: currentLocation.lng
+            lng: currentLocation.lng,
+            heading: currentLocation.heading || 0
           })
         });
       } catch (e) {
@@ -82,7 +96,8 @@ export default function DriverHome() {
           async (position) => {
             const newLocation = {
               lat: position.coords.latitude,
-              lng: position.coords.longitude
+              lng: position.coords.longitude,
+              heading: position.coords.heading || 0
             };
             setCurrentLocation(newLocation);
             try {
@@ -92,7 +107,8 @@ export default function DriverHome() {
                 body: JSON.stringify({
                   bookingId: activeTrip.id,
                   lat: newLocation.lat,
-                  lng: newLocation.lng
+                  lng: newLocation.lng,
+                  heading: newLocation.heading
                 })
               });
             } catch (e) {
@@ -333,26 +349,40 @@ export default function DriverHome() {
   })
 
   return (
-    <div className="h-screen w-full relative bg-slate-50 flex flex-col">
-        {/* Header */}
-        <div className="absolute top-0 left-0 right-0 z-20 bg-white/90 backdrop-blur p-4 shadow-sm flex justify-between items-center">
-            <div className="flex items-center gap-3">
-                <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                <h1 className="font-bold text-lg">{isOnline ? (incomingRequests.length > 0 ? `${incomingRequests.length} Requests` : "Online (Idle)") : "Offline"}</h1>
+    <div className="h-[100dvh] w-full relative bg-slate-50 overflow-hidden">
+        {/* Header - Balanced 3-column layout for perfect centering */}
+        <div className="absolute top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md px-6 py-5 shadow-sm flex items-center border-b border-slate-100">
+            {/* Left Column - Empty spacer for symmetry */}
+            <div className="flex-1"></div>
+
+            {/* Center Column - Earnings Pill */}
+            <div className="flex-1 flex justify-center">
+                <div className="bg-slate-900 px-4 py-2.5 rounded-full flex items-center gap-2 shadow-lg shadow-black/10 transition-colors">
+                    <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow-sm">
+                        <span className="text-white text-[10px] font-bold">₹</span>
+                    </div>
+                    <p className="font-extrabold text-white text-sm">₹{earningsData?.earnings || 0}</p>
+                </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Right Column - Actions balanced with left */}
+            <div className="flex-1 flex items-center justify-end gap-3">
+                <span className={`text-[10px] font-black tracking-tighter ${isOnline ? 'text-green-500' : 'text-slate-400'} uppercase transition-colors`}>
+                    {isOnline ? "Online" : "Go Online"}
+                </span>
                 <Switch 
                     checked={isOnline}
                     onCheckedChange={(checked) => {
                         if (checked) startShiftMutation.mutate();
                         else goOfflineMutation.mutate();
                     }}
+                    className="data-[state=checked]:bg-green-500"
                 />
             </div>
         </div>
 
-        {/* Map Area */}
-        <div className="flex-1 relative">
+        {/* Map Area - Filling absolute background */}
+        <div className="absolute inset-0 z-0">
             {currentLocation && (
                 <MapboxMap 
                     center={currentLocation}

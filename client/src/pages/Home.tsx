@@ -44,7 +44,7 @@ export default function Home() {
   const [tripOtp, setTripOtp] = useState<string>("");
   const [tripStatus, setTripStatus] = useState<"accepted" | "arrived" | "in_progress" | "completed">("accepted");
   const [tripFare, setTripFare] = useState<number>(0);
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number; heading?: number } | null>(null);
   const [driverEta, setDriverEta] = useState<number | null>(null);
   const [tripRoute, setTripRoute] = useState<any>(null); // Dynamic route for trip phase
   const [rideMode, setRideMode] = useState<"pool" | "private">("pool"); // Default to pool
@@ -378,7 +378,7 @@ export default function Home() {
   if (dropoffCoords) markers.push({ ...dropoffCoords, type: "dropoff" as const });
   // Real driver location from tracking
   if (step === "trip" && driverLocation) {
-    markers.push({ ...driverLocation, type: "driver" as const });
+    markers.push({ ...driverLocation, type: "driver" as const, heading: driverLocation.heading });
   }
 
   return (

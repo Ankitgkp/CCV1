@@ -202,15 +202,15 @@ export async function registerRoutes(
   });
 
   // Driver location tracking - in-memory store for simplicity
-  const driverLocations: Map<number, { lat: number; lng: number; updatedAt: number }> = new Map();
+  const driverLocations: Map<number, { lat: number; lng: number; heading: number; updatedAt: number }> = new Map();
 
   app.post("/api/driver/location", async (req, res) => {
     try {
-      const { bookingId, lat, lng } = req.body;
+      const { bookingId, lat, lng, heading } = req.body;
       if (!bookingId || lat === undefined || lng === undefined) {
         return res.status(400).json({ message: "bookingId, lat, lng required" });
       }
-      driverLocations.set(bookingId, { lat, lng, updatedAt: Date.now() });
+      driverLocations.set(bookingId, { lat, lng, heading: heading || 0, updatedAt: Date.now() });
       res.json({ success: true });
     } catch (err) {
       res.status(400).json({ message: "Failed to update location" });
@@ -224,6 +224,12 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Driver location not available" });
     }
     res.json(location);
+  });
+
+  app.get("/api/driver/earnings", async (req: any, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const earnings = await storage.getDriverEarnings(req.user.id);
+    res.json({ earnings });
   });
 
   // Seed data
