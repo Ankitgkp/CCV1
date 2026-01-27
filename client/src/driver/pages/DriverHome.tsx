@@ -14,6 +14,11 @@ import { useAuth } from "@/hooks/use-auth";
 import type { Booking } from "@shared/schema";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBookings } from "@/hooks/use-bookings";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 
 
 export default function DriverHome() {
@@ -27,6 +32,7 @@ export default function DriverHome() {
   const [poolJoinRequests, setPoolJoinRequests] = useState<Booking[]>([]);
   const [poolPassengers, setPoolPassengers] = useState<any[]>([]);
   const [activeRideId, setActiveRideId] = useState<number | null>(null);
+  const [otpInput, setOtpInput] = useState("");
   const prevRequestsRef = useRef<Set<number>>(new Set());
 
   const { toast } = useToast();
@@ -160,12 +166,13 @@ export default function DriverHome() {
       await updateStatus.mutateAsync({
         id: booking.id,
         status: "accepted",
-        otp: "4567"
+        // otp: "4567" - Removed hardcoded OTP
       });
       toast({ title: "Ride Accepted", description: "Navigate to pickup location" });
       // Store accepted booking as active trip
       setActiveTrip(booking);
       setTripStage("to_pickup");
+      setOtpInput("");
       // Clear from requests list
       setIncomingRequests([]);
     } catch (e) {
@@ -186,12 +193,22 @@ export default function DriverHome() {
 
   const handleStartTrip = async () => {
     if (!activeTrip) return;
+    
+    if (otpInput.length !== 4) {
+      toast({ title: "Enter OTP", description: "Please ask passenger for 4-digit OTP", variant: "destructive" });
+      return;
+    }
+
     try {
-      await updateStatus.mutateAsync({ id: activeTrip.id, status: "in_progress" });
+      await updateStatus.mutateAsync({ 
+        id: activeTrip.id, 
+        status: "in_progress",
+        otp: otpInput
+      });
       setTripStage("in_progress");
       toast({ title: "Trip Started", description: "Navigate to dropoff" });
     } catch (e) {
-      toast({ title: "Failed to start trip", variant: "destructive" });
+      toast({ title: "Invalid OTP", description: "Please check with passenger", variant: "destructive" });
     }
   };
 
@@ -208,6 +225,7 @@ export default function DriverHome() {
         setPoolJoinRequests([]);
         setPoolPassengers([]);
         setActiveRideId(null);
+        setOtpInput("");
       }, 2000);
     } catch (e) {
       toast({ title: "Failed to complete trip", variant: "destructive" });
@@ -498,13 +516,40 @@ export default function DriverHome() {
           {/* OTP & Fare */}
           <div className="flex items-center justify-between bg-slate-100 p-4 rounded-2xl mb-4">
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Passenger OTP</p>
-              <p className="text-2xl font-bold tracking-widest">{activeTrip.otp || "4567"}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">
+                {tripStage === "arrived" ? "Enter OTP" : "Trip Fare"}
+              </p>
+              
+              {tripStage === "arrived" ? (
+                <div className="flex items-center gap-2">
+                   <InputOTP
+                    maxLength={4}
+                    value={otpInput}
+                    onChange={(value) => setOtpInput(value)}
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} className="w-8 h-10 bg-white" />
+                      <InputOTPSlot index={1} className="w-8 h-10 bg-white" />
+                      <InputOTPSlot index={2} className="w-8 h-10 bg-white" />
+                      <InputOTPSlot index={3} className="w-8 h-10 bg-white" />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+              ) : (
+                 <p className="text-xl font-bold text-slate-900">₹{activeTrip.fare}</p>
+              )}
             </div>
-            <div className="text-right">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Fare</p>
-              <p className="text-xl font-bold text-green-600">₹{activeTrip.fare}</p>
-            </div>
+            {tripStage === "in_progress" || tripStage === "completed" ? (
+               <div className="text-right">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Distance</p>
+                <p className="text-sm font-bold text-slate-900">2.5 km</p>
+              </div>
+            ) : (
+              <div className="text-right">
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Est. Fare</p>
+                <p className="text-xl font-bold text-green-600">₹{activeTrip.fare}</p>
+              </div>
+            )}
           </div>
 
           {/* Pool Badge & Join Requests */}

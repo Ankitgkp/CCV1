@@ -86,12 +86,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateBookingStatus(id: number, status: string, otp?: string): Promise<Booking> {
+    const updateData: any = { status: status as any };
+    if (otp !== undefined) {
+      updateData.otp = otp;
+    }
+
     const [updated] = await db
       .update(bookings)
-      .set({ 
-        status: status as any, 
-        otp: otp || undefined 
-      })
+      .set(updateData)
       .where(eq(bookings.id, id))
       .returning();
     return updated;

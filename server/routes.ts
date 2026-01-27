@@ -191,8 +191,28 @@ export async function registerRoutes(
       if (!booking) {
         return res.status(404).json({ message: "Booking not found" });
       }
+
+      // OTP Verification for starting trip
+      if (input.status === "in_progress") {
+        if (!input.otp) {
+          return res.status(400).json({ message: "OTP is required to start trip" });
+        }
+        if (input.otp !== booking.otp) {
+          return res.status(400).json({ message: "Invalid OTP" });
+        }
+      }
       
-      const updatedBooking = await storage.updateBookingStatus(id, input.status, input.otp);
+      // Don't overwrite OTP when accepting
+      const updateData: any = { status: input.status };
+      if (input.status === "accepted") {
+        // Do not set OTP here
+      } else if (input.otp) {
+         // Only update OTP if explicitly needed (unlikely for other statuses, but safe)
+         // Actually, for in_progress verification, we don't change the OTP, just verify it.
+         // But let's keep it clean: strict update.
+      }
+
+      const updatedBooking = await storage.updateBookingStatus(id, input.status);
       
       res.json(updatedBooking);
     } catch (err) {
