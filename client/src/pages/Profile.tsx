@@ -151,6 +151,7 @@ export default function Profile() {
           <Button 
             variant="outline" 
             className="w-full h-14 border-slate-200 rounded-2xl justify-between px-6 font-bold text-slate-900 hover:bg-slate-50 group"
+            onClick={() => setLocation("/history")}
           >
             Ride History
             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-900 transition-colors" />

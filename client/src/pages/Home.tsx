@@ -12,6 +12,7 @@ import { useBookings } from "@/hooks/use-bookings";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { useCurrentBooking } from "@/hooks/use-bookings";
 import { api } from "@shared/routes";
 import type { Ride, User } from "@shared/schema";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -57,7 +58,8 @@ export default function Home() {
   });
   
   const { data: rides } = useRides();
-  const { createBooking } = useBookings();
+  const { createBooking, updateStatus: updateBookingStatus } = useBookings();
+  const { data: activeBooking } = useCurrentBooking();
   const { toast } = useToast();
 
   // Debounce search with loading state
@@ -132,6 +134,39 @@ export default function Home() {
     );
   };
   
+  // Restore active session
+  useEffect(() => {
+    if (activeBooking && step === "search") {
+      setBookingId(activeBooking.id);
+      setTripStatus(activeBooking.status as any);
+      setTripOtp(activeBooking.otp || "");
+      
+      const ride = (activeBooking as any).ride;
+      const driver = (activeBooking as any).driver;
+
+      if (ride) {
+        setRideInfo(ride);
+        // Reconstruct basic ride object for selectedRide
+        setSelectedRide({
+            ...ride,
+            type: activeBooking.isPool ? "pool" : "economy", // simplified
+            pricePerKm: ride.pricePerKm,
+        } as any);
+      }
+
+      if (driver) {
+        setDriverInfo(driver);
+      }
+
+      // Determine step
+      if (["pending", "accepted", "arrived"].includes(activeBooking.status)) {
+        setStep("waiting");
+      } else if (activeBooking.status === "in_progress") {
+        setStep("trip");
+      }
+    }
+  }, [activeBooking]);
+
   const handleSelectPlace = (place: Place) => {
     if (activeInput === "pickup") {
       setPickup(place.text);

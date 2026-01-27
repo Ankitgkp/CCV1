@@ -1,6 +1,6 @@
 import { users, rides, bookings, type User, type InsertUser, type Ride, type Booking } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, lt, inArray, ne, gt } from "drizzle-orm";
+import { eq, and, lt, inArray, ne, gt, desc } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -16,8 +16,13 @@ export interface IStorage {
   
   createBooking(booking: Omit<Booking, "id" | "createdAt">): Promise<Booking>;
   getBooking(id: number): Promise<Booking | undefined>;
+  getActiveBookingForUser(userId: number): Promise<Booking | undefined>;
+  getActiveBookingForDriver(driverId: number): Promise<Booking | undefined>;
   updateBookingStatus(id: number, status: string, otp?: string): Promise<Booking>;
   getDriverEarnings(driverId: number): Promise<number>;
+  getDriverTripCount(driverId: number): Promise<number>;
+  getUserRideHistory(userId: number): Promise<Booking[]>;
+  getDriverRideHistory(driverId: number): Promise<Booking[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -82,6 +87,49 @@ export class DatabaseStorage implements IStorage {
 
   async getBooking(id: number): Promise<Booking | undefined> {
     const [booking] = await db.select().from(bookings).where(eq(bookings.id, id));
+    return booking;
+  }
+
+  async getActiveBookingForUser(userId: number): Promise<Booking | undefined> {
+    const [booking] = await db.select().from(bookings).where(
+      and(
+        eq(bookings.userId, userId),
+        inArray(bookings.status, ["pending", "accepted", "arrived", "in_progress"])
+      )
+    );
+    return booking;
+  }
+
+  async getActiveBookingForDriver(driverId: number): Promise<Booking | undefined> {
+    // Find a booking that is associated with a ride driven by this driver, and is active
+    // We join bookings with rides to filter by driverId
+    const [booking] = await db.select({
+        id: bookings.id,
+        userId: bookings.userId,
+        rideId: bookings.rideId,
+        pickupAddress: bookings.pickupAddress,
+        dropoffAddress: bookings.dropoffAddress,
+        pickupLat: bookings.pickupLat,
+        pickupLng: bookings.pickupLng,
+        dropoffLat: bookings.dropoffLat,
+        dropoffLng: bookings.dropoffLng,
+        status: bookings.status,
+        otp: bookings.otp,
+        fare: bookings.fare,
+        createdAt: bookings.createdAt,
+        isPool: bookings.isPool,
+        poolId: bookings.poolId,
+        distance: bookings.distance,
+        joinStatus: bookings.joinStatus
+      })
+      .from(bookings)
+      .innerJoin(rides, eq(bookings.rideId, rides.id))
+      .where(
+        and(
+          eq(rides.driverId, driverId),
+          inArray(bookings.status, ["accepted", "arrived", "in_progress"])
+        )
+      );
     return booking;
   }
 
@@ -151,31 +199,71 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDriverEarnings(driverId: number): Promise<number> {
-    const result = await db
-      .select({
-        total: db.$count(bookings.fare), // This is not correct for sum, using sum instead
-      })
+    const driverBookings = await db.select()
       .from(bookings)
       .innerJoin(rides, eq(bookings.rideId, rides.id))
       .where(
         and(
           eq(rides.driverId, driverId),
-          eq(bookings.status, "completed" as any)
+          eq(bookings.status, "completed")
         )
       );
     
-    // Using a more manual approach since drizzle sum can be tricky to type here
-    const driverBookings = await db.select({ fare: bookings.fare })
+    // driverBookings is now an array of { bookings: Booking, rides: Ride } objects due to the join
+    return driverBookings.reduce((sum, row) => sum + (row.bookings.fare || 0), 0);
+  }
+
+  async getDriverTripCount(driverId: number): Promise<number> {
+    const driverBookings = await db.select()
       .from(bookings)
       .innerJoin(rides, eq(bookings.rideId, rides.id))
       .where(
         and(
           eq(rides.driverId, driverId),
-          eq(bookings.status, "completed" as any)
+          eq(bookings.status, "completed")
         )
       );
-    
-    return driverBookings.reduce((sum, b) => sum + (b.fare || 0), 0);
+    return driverBookings.length;
+  }
+
+  async getUserRideHistory(userId: number): Promise<Booking[]> {
+    return await db.select().from(bookings).where(
+      and(
+        eq(bookings.userId, userId),
+        inArray(bookings.status, ["completed", "cancelled"])
+      )
+    ).orderBy(desc(bookings.createdAt));
+  }
+
+  async getDriverRideHistory(driverId: number): Promise<Booking[]> {
+    return await db.select({
+        id: bookings.id,
+        userId: bookings.userId,
+        rideId: bookings.rideId,
+        pickupAddress: bookings.pickupAddress,
+        dropoffAddress: bookings.dropoffAddress,
+        pickupLat: bookings.pickupLat,
+        pickupLng: bookings.pickupLng,
+        dropoffLat: bookings.dropoffLat,
+        dropoffLng: bookings.dropoffLng,
+        status: bookings.status,
+        otp: bookings.otp,
+        fare: bookings.fare,
+        createdAt: bookings.createdAt,
+        isPool: bookings.isPool,
+        poolId: bookings.poolId,
+        distance: bookings.distance,
+        joinStatus: bookings.joinStatus
+    })
+      .from(bookings)
+      .innerJoin(rides, eq(bookings.rideId, rides.id))
+      .where(
+        and(
+          eq(rides.driverId, driverId),
+          eq(bookings.status, "completed")
+        )
+      )
+      .orderBy(desc(bookings.createdAt));
   }
 }
 
