@@ -8,7 +8,7 @@ import { MapboxMap } from "@/lib/map/mapbox/MapboxMap";
 import { mapService } from "@/lib/map/mapbox/MapboxService";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
-import { MapPin } from "lucide-react";
+import { MapPin, Users, Navigation, Check, X, CheckCircle } from "lucide-react";
 import { api } from "@shared/routes";
 import { useAuth } from "@/hooks/use-auth";
 import type { Booking } from "@shared/schema";
@@ -245,7 +245,7 @@ export default function DriverHome() {
         requests.forEach((req: any) => {
           if (!poolJoinRequests.find(r => r.id === req.id)) {
             toast({
-              title: "🚗 Pool Join Request!",
+              title: "Pool Join Request!",
               description: `Someone wants to join your pool`,
               duration: 5000
             });
@@ -557,7 +557,9 @@ export default function DriverHome() {
             <>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full">🚗 POOL RIDE</span>
+                  <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-1 rounded-full flex items-center gap-1">
+                    <Users className="w-3 h-3" /> POOL RIDE
+                  </span>
                   {poolJoinRequests.length > 0 && (
                     <span className="text-xs font-bold text-orange-700 bg-orange-100 px-2 py-1 rounded-full animate-pulse">
                       {poolJoinRequests.length} Request{poolJoinRequests.length > 1 ? 's' : ''}
@@ -574,8 +576,14 @@ export default function DriverHome() {
                     <div key={req.id} className="bg-white p-3 rounded-xl border border-orange-100">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex-1">
-                          <p className="text-xs text-slate-500">📍 <span className="font-medium">{req.pickupAddress}</span></p>
-                          <p className="text-xs text-slate-500">🎯 <span className="font-medium">{req.dropoffAddress}</span></p>
+                          <div className="flex items-center gap-1 mb-1">
+                            <MapPin className="w-3 h-3 text-slate-400" />
+                            <span className="text-xs font-medium text-slate-900">{req.pickupAddress}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Navigation className="w-3 h-3 text-slate-400" />
+                            <span className="text-xs font-medium text-slate-900">{req.dropoffAddress}</span>
+                          </div>
                         </div>
                         <span className="text-sm font-bold text-green-600">+₹{Math.round((req.distance || 0) * 10)}</span>
                       </div>
@@ -584,14 +592,14 @@ export default function DriverHome() {
                           onClick={() => handleAcceptPoolRequest(req.id)}
                           className="flex-1 h-10 bg-green-500 hover:bg-green-600 text-white text-sm font-bold rounded-lg"
                         >
-                          ✓ Accept
+                          <Check className="w-4 h-4 mr-2" /> Accept
                         </Button>
                         <Button
                           onClick={() => handleRejectPoolRequest(req.id)}
                           variant="outline"
                           className="flex-1 h-10 border-red-200 text-red-600 hover:bg-red-50 text-sm font-bold rounded-lg"
                         >
-                          ✗ Decline
+                          <X className="w-4 h-4 mr-2" /> Decline
                         </Button>
                       </div>
                     </div>
@@ -687,8 +695,9 @@ export default function DriverHome() {
             )}
 
             {tripStage === "completed" && (
-              <div className="flex-1 h-14 bg-green-100 rounded-xl flex items-center justify-center">
-                <span className="text-green-700 font-bold text-lg">✓ Trip Completed</span>
+              <div className="flex-1 h-14 bg-green-100 rounded-xl flex items-center justify-center gap-2">
+                <CheckCircle className="w-6 h-6 text-green-700" />
+                <span className="text-green-700 font-bold text-lg">Trip Completed</span>
               </div>
             )}
           </div>

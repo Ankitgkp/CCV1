@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Star } from "lucide-react";
+import { Star, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Review() {
@@ -39,9 +39,9 @@ export default function Review() {
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: "spring" }}
-            className="text-5xl"
+            className="text-5xl flex items-center justify-center text-green-600"
           >
-            ✓
+            <Check className="w-16 h-16" />
           </motion.div>
         </div>
 

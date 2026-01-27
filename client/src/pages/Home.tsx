@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Navigation, ArrowLeft, User as UserIcon, X, MapPin, Loader2, Phone } from "lucide-react";
+import { Navigation, ArrowLeft, User as UserIcon, X, MapPin, Loader2, Phone, Users, Car, Footprints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MapboxMap } from "@/lib/map/mapbox/MapboxMap";
@@ -344,7 +344,7 @@ export default function Home() {
         // Notify when new passenger joins
         if (passengers.length > poolPassengers.length && poolPassengers.length > 0) {
           toast({ 
-            title: "🎉 New passenger joined!", 
+            title: "New passenger joined!", 
             description: "Someone joined your pool ride",
             className: "bg-green-500 text-white border-none"
           });
@@ -521,15 +521,15 @@ export default function Home() {
             <div className="flex bg-slate-100 p-1 rounded-2xl mb-4">
               <button
                 onClick={() => setRideMode("pool")}
-                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${rideMode === "pool" ? "bg-black text-white shadow-lg" : "text-slate-600"}`}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${rideMode === "pool" ? "bg-black text-white shadow-lg" : "text-slate-600"}`}
               >
-                🚗 Pool
+                <Users className="w-4 h-4" /> Pool
               </button>
               <button
                 onClick={() => setRideMode("private")}
-                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${rideMode === "private" ? "bg-black text-white shadow-lg" : "text-slate-600"}`}
+                className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${rideMode === "private" ? "bg-black text-white shadow-lg" : "text-slate-600"}`}
               >
-                🚙 Private
+                <Car className="w-4 h-4" /> Private
               </button>
             </div>
 
@@ -557,10 +557,12 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="mt-2 flex items-start gap-2">
-                        <span className="text-xs text-slate-500">📍 {pool.pickupDistance}km away</span>
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                          <MapPin className="w-3 h-3" /> {pool.pickupDistance}km away
+                        </span>
                         {parseFloat(pool.pickupDistance) > 0.3 && (
-                          <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
-                            💡 Walk ~{Math.round(parseFloat(pool.pickupDistance) * 12)}min to pickup for faster ride
+                          <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                            <Footprints className="w-3 h-3" /> Walk ~{Math.round(parseFloat(pool.pickupDistance) * 12)}min to pickup for faster ride
                           </span>
                         )}
                       </div>
