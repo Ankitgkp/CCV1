@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Star, Check } from "lucide-react";
@@ -28,21 +27,12 @@ export default function Review() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col items-center justify-center p-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md"
-      >
+      <div className="w-full max-w-md">
         {/* Success Icon */}
         <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: "spring" }}
-            className="text-5xl flex items-center justify-center text-green-600"
-          >
+          <div className="text-5xl flex items-center justify-center text-green-600">
             <Check className="w-16 h-16" />
-          </motion.div>
+          </div>
         </div>
 
         <h1 className="text-3xl font-bold text-center mb-2">Trip Completed!</h1>
@@ -96,7 +86,8 @@ export default function Review() {
         >
           Skip
         </button>
-      </motion.div>
+      </div>
     </div>
   );
 }
+

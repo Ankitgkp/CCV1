@@ -457,7 +457,7 @@ export default function DriverHome() {
       )}
 
       {isOnline && incomingRequests.length > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-slate-50 rounded-t-[32px] shadow-2xl animate-in slide-in-from-bottom flex flex-col max-h-[60vh]">
+        <div className="absolute bottom-0 left-0 right-0 z-30 bg-slate-50 rounded-t-[32px] shadow-2xl flex flex-col max-h-[60vh]">
           <div className="p-6 bg-white rounded-t-[32px] border-b border-slate-100 sticky top-0 z-10">
             <h3 className="text-xl font-bold">Ride Requests ({incomingRequests.length})</h3>
           </div>
@@ -501,7 +501,7 @@ export default function DriverHome() {
 
       {/* Active Trip Panel - After Accepting */}
       {activeTrip && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] shadow-2xl animate-in slide-in-from-bottom p-6">
+        <div className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] shadow-2xl p-6">
           <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-4"></div>
 
           {/* Stage Header */}
@@ -654,7 +654,7 @@ export default function DriverHome() {
           {/* Action Buttons based on stage */}
           {/* Dedicated OTP Input Section */}
           {tripStage === "arrived" && (
-            <div className="bg-white border-2 border-slate-100 p-6 rounded-3xl mb-6 flex flex-col items-center justify-center animate-in zoom-in-50 duration-300 shadow-sm">
+            <div className="bg-white border-2 border-slate-100 p-6 rounded-3xl mb-6 flex flex-col items-center justify-center shadow-sm">
                <p className="text-sm font-bold text-slate-500 uppercase mb-4 tracking-wider flex items-center gap-2">
                  Ask Passenger for OTP
                </p>

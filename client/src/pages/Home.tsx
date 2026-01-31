@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Navigation, ArrowLeft, User as UserIcon, X, MapPin, Loader2, Phone, Users, Car, Footprints } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +10,7 @@ import { useRides } from "@/hooks/use-rides";
 import { useBookings } from "@/hooks/use-bookings";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCurrentBooking } from "@/hooks/use-bookings";
 import { api } from "@shared/routes";
 import type { Ride, User } from "@shared/schema";
@@ -60,6 +59,7 @@ export default function Home() {
   const { data: rides } = useRides();
   const { createBooking, updateStatus: updateBookingStatus } = useBookings();
   const { data: activeBooking } = useCurrentBooking();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   // Debounce search with loading state
@@ -137,6 +137,18 @@ export default function Home() {
   // Restore active session
   useEffect(() => {
     if (activeBooking && step === "search") {
+      // Check if pending booking is stale (older than 70 seconds)
+      // Stale pending bookings should not restore "waiting" state
+      if (activeBooking.status === "pending" && activeBooking.createdAt) {
+        const createdAt = new Date(activeBooking.createdAt).getTime();
+        const now = Date.now();
+        if (now - createdAt > 70000) {
+          // Stale pending booking - don't restore, clear the cached booking
+          queryClient.setQueryData(["current-booking"], null);
+          return;
+        }
+      }
+
       setBookingId(activeBooking.id);
       setTripStatus(activeBooking.status as any);
       setTripOtp(activeBooking.otp || "");
@@ -159,13 +171,13 @@ export default function Home() {
       }
 
       // Determine step
-      if (["pending", "accepted", "arrived"].includes(activeBooking.status)) {
+      if (activeBooking.status && ["pending", "accepted", "arrived"].includes(activeBooking.status)) {
         setStep("waiting");
       } else if (activeBooking.status === "in_progress") {
         setStep("trip");
       }
     }
-  }, [activeBooking]);
+  }, [activeBooking, queryClient]);
 
   const handleSelectPlace = (place: Place) => {
     if (activeInput === "pickup") {
@@ -439,12 +451,9 @@ export default function Home() {
       </div>
 
       {/* Floating Search Panel (Uber Style) */}
-      <AnimatePresence>
+      <>
         {step === "search" && (
-          <motion.div 
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 200, opacity: 0 }}
+          <div 
             className="absolute bottom-0 left-0 right-0 z-20 bg-white rounded-t-[32px] p-6 shadow-[0_-10px_40px_rgba(0,0,0,0.1)] pb-10"
           >
             <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-6"></div>
@@ -524,17 +533,14 @@ export default function Home() {
                 Request Ride
               </Button>
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
 
       {/* Ride Selection (Rapido Style) */}
-      <AnimatePresence>
+      <>
         {step === "select" && (
-          <motion.div 
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
+          <div 
             className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] p-6 h-[85vh] flex flex-col shadow-[0_-10px_40px_rgba(0,0,0,0.1)]"
           >
             <div className="flex items-center gap-4 mb-4">
@@ -650,16 +656,14 @@ export default function Home() {
                 {createBooking.isPending ? "Requesting..." : isPool ? `Book Pool Ride` : `Book ${selectedRide?.type || 'Ride'}`}
               </Button>
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
 
       {/* Finding Ride (Professional Loading) */}
-      <AnimatePresence>
+      <>
         {step === "waiting" && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+          <div 
             className="absolute inset-0 z-40 bg-white/90 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center"
           >
             <div className="w-24 h-24 mb-8">
@@ -670,16 +674,14 @@ export default function Home() {
             </div>
             <h2 className="text-2xl font-bold mb-2">Connecting with driver</h2>
             <p className="text-slate-500 font-medium">Sit back while we find you the best ride</p>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
 
       {/* Active Trip Panel - Dynamic based on trip status */}
-      <AnimatePresence>
+      <>
         {step === "trip" && (
-          <motion.div 
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
+          <div 
             className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] p-6 shadow-[0_-10px_50px_rgba(0,0,0,0.15)] pb-safe"
           >
             <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-4"></div>
@@ -782,9 +784,9 @@ export default function Home() {
                 </Button>
               )}
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 }

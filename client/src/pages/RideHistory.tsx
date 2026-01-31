@@ -42,7 +42,7 @@ export default function RideHistory() {
                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${
                   ride.status === "completed" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                 }`}>
-                  {ride.status.toUpperCase()}
+                  {(ride.status || "pending").toUpperCase()}
                 </span>
               </div>
 

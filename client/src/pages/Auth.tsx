@@ -1,7 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,9 +121,7 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col p-6">
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+      <div 
         className="w-full max-w-sm mx-auto flex-1 flex flex-col pt-12"
       >
         <div className="mb-10 flex justify-between items-start">
@@ -375,7 +372,7 @@ export default function Auth() {
         <p className="text-[10px] text-slate-400 text-center pb-8">
           By continuing, you agree to our Terms of Service and Privacy Policy.
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }
