@@ -4,9 +4,7 @@ import { ArrowLeft, User, Mail, FileText, Camera, LogOut, ChevronRight } from "l
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@shared/routes";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -124,9 +122,9 @@ export default function Profile() {
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Bio</label>
               {isEditing ? (
-                <Textarea 
+                <textarea 
                   defaultValue={user?.bio || ""} 
-                  className="bg-slate-50 border-slate-200 rounded-xl min-h-[80px]"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl min-h-[80px] p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent"
                   onChange={(e) => (user!.bio = e.target.value)}
                 />
               ) : (
@@ -151,6 +149,7 @@ export default function Profile() {
           <Button 
             variant="outline" 
             className="w-full h-14 border-slate-200 rounded-2xl justify-between px-6 font-bold text-slate-900 hover:bg-slate-50 group"
+            onClick={() => setLocation("/history")}
           >
             Ride History
             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-900 transition-colors" />

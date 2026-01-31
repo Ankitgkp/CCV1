@@ -13,12 +13,20 @@ import { api } from "@shared/routes";
 import { useAuth } from "@/hooks/use-auth";
 import type { Booking } from "@shared/schema";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useBookings } from "@/hooks/use-bookings";
+import { useBookings, useCurrentBooking } from "@/hooks/use-bookings";
 import {
   InputOTP,
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { User as UserIcon } from "lucide-react";
 
 
 export default function DriverHome() {
@@ -38,10 +46,24 @@ export default function DriverHome() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { data: activeBooking } = useCurrentBooking();
 
-  const { data: earningsData } = useQuery<{ earnings: number }>({
-    queryKey: ["/api/driver/earnings"],
-    refetchInterval: 30000, // Refresh every 30s
+  // Restore driver session
+  useEffect(() => {
+    if (activeBooking && !activeTrip) {
+      setActiveTrip(activeBooking);
+      setActiveRideId(activeBooking.rideId);
+      
+      if (activeBooking.status === "accepted") setTripStage("to_pickup");
+      else if (activeBooking.status === "arrived") setTripStage("arrived");
+      else if (activeBooking.status === "in_progress") setTripStage("in_progress");
+    }
+  }, [activeBooking]);
+
+  // Stats Query
+  const { data: statsData } = useQuery<{ earnings: number; totalTrips: number }>({
+    queryKey: ["/api/driver/stats"],
+    refetchInterval: 10000, 
   });
 
   // 1. Get Initial Location
@@ -226,6 +248,7 @@ export default function DriverHome() {
         setPoolPassengers([]);
         setActiveRideId(null);
         setOtpInput("");
+        queryClient.invalidateQueries({ queryKey: ["/api/driver/stats"] });
       }, 2000);
     } catch (e) {
       toast({ title: "Failed to complete trip", variant: "destructive" });
@@ -379,12 +402,20 @@ export default function DriverHome() {
             <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow-sm">
               <span className="text-white text-[10px] font-bold">₹</span>
             </div>
-            <p className="font-extrabold text-white text-sm">₹{earningsData?.earnings || 0}</p>
+            <p className="font-extrabold text-white text-sm">₹{statsData?.earnings || 0}</p>
           </div>
         </div>
 
         {/* Right Column - Actions balanced with left */}
         <div className="flex-1 flex items-center justify-end gap-3">
+            <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setLocation("/driver/profile")}
+                className="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700"
+            >
+                <UserIcon className="h-5 w-5" />
+            </Button>
           <span className={`text-[10px] font-black tracking-tighter ${isOnline ? 'text-green-500' : 'text-slate-400'} uppercase transition-colors`}>
             {isOnline ? "Online" : "Go Online"}
           </span>
@@ -426,7 +457,7 @@ export default function DriverHome() {
       )}
 
       {isOnline && incomingRequests.length > 0 && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-slate-50 rounded-t-[32px] shadow-2xl animate-in slide-in-from-bottom flex flex-col max-h-[60vh]">
+        <div className="absolute bottom-0 left-0 right-0 z-30 bg-slate-50 rounded-t-[32px] shadow-2xl flex flex-col max-h-[60vh]">
           <div className="p-6 bg-white rounded-t-[32px] border-b border-slate-100 sticky top-0 z-10">
             <h3 className="text-xl font-bold">Ride Requests ({incomingRequests.length})</h3>
           </div>
@@ -470,7 +501,7 @@ export default function DriverHome() {
 
       {/* Active Trip Panel - After Accepting */}
       {activeTrip && (
-        <div className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] shadow-2xl animate-in slide-in-from-bottom p-6">
+        <div className="absolute bottom-0 left-0 right-0 z-30 bg-white rounded-t-[32px] shadow-2xl p-6">
           <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto mb-4"></div>
 
           {/* Stage Header */}
@@ -516,28 +547,8 @@ export default function DriverHome() {
           {/* OTP & Fare */}
           <div className="flex items-center justify-between bg-slate-100 p-4 rounded-2xl mb-4">
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">
-                {tripStage === "arrived" ? "Enter OTP" : "Trip Fare"}
-              </p>
-              
-              {tripStage === "arrived" ? (
-                <div className="flex items-center gap-2">
-                   <InputOTP
-                    maxLength={4}
-                    value={otpInput}
-                    onChange={(value) => setOtpInput(value)}
-                  >
-                    <InputOTPGroup>
-                      <InputOTPSlot index={0} className="w-8 h-10 bg-white" />
-                      <InputOTPSlot index={1} className="w-8 h-10 bg-white" />
-                      <InputOTPSlot index={2} className="w-8 h-10 bg-white" />
-                      <InputOTPSlot index={3} className="w-8 h-10 bg-white" />
-                    </InputOTPGroup>
-                  </InputOTP>
-                </div>
-              ) : (
-                 <p className="text-xl font-bold text-slate-900">₹{activeTrip.fare}</p>
-              )}
+              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Trip Fare</p>
+              <p className="text-xl font-bold text-slate-900">₹{activeTrip.fare}</p>
             </div>
             {tripStage === "in_progress" || tripStage === "completed" ? (
                <div className="text-right">
@@ -641,6 +652,27 @@ export default function DriverHome() {
           )}
 
           {/* Action Buttons based on stage */}
+          {/* Dedicated OTP Input Section */}
+          {tripStage === "arrived" && (
+            <div className="bg-white border-2 border-slate-100 p-6 rounded-3xl mb-6 flex flex-col items-center justify-center shadow-sm">
+               <p className="text-sm font-bold text-slate-500 uppercase mb-4 tracking-wider flex items-center gap-2">
+                 Ask Passenger for OTP
+               </p>
+               <InputOTP
+                maxLength={4}
+                value={otpInput}
+                onChange={(value) => setOtpInput(value)}
+              >
+                <InputOTPGroup className="gap-3">
+                  <InputOTPSlot index={0} className="w-14 h-16 text-3xl font-bold bg-slate-50 border-2 border-slate-200 rounded-xl" />
+                  <InputOTPSlot index={1} className="w-14 h-16 text-3xl font-bold bg-slate-50 border-2 border-slate-200 rounded-xl" />
+                  <InputOTPSlot index={2} className="w-14 h-16 text-3xl font-bold bg-slate-50 border-2 border-slate-200 rounded-xl" />
+                  <InputOTPSlot index={3} className="w-14 h-16 text-3xl font-bold bg-slate-50 border-2 border-slate-200 rounded-xl" />
+                </InputOTPGroup>
+              </InputOTP>
+            </div>
+          )}
+
           <div className="flex gap-3">
             {tripStage === "to_pickup" && (
               <>

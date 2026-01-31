@@ -53,7 +53,12 @@ export function useCurrentBooking() {
   // Simulating a "current booking" query - in real app would fetch by ID or user's active booking
   return useQuery<Booking | null>({
     queryKey: ["current-booking"],
-    queryFn: () => null, // Initially null
-    staleTime: Infinity,
+    queryFn: async () => {
+      const res = await fetch("/api/user/active-booking");
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data; // Returns null if no active booking, or the booking object
+    },
+    refetchInterval: 5000, // Poll every 5s to stay updated
   });
 }

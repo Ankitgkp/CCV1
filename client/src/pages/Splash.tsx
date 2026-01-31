@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,12 +21,7 @@ export default function Splash() {
 
   return (
     <div className="h-screen w-full bg-black flex flex-col items-center justify-center p-8 overflow-hidden relative">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-        className="relative z-10"
-      >
+      <div className="relative z-10">
         <div className="space-y-6 text-center">
           <h1 className="text-7xl font-bold text-white tracking-tighter italic">
             POOL
@@ -37,7 +31,7 @@ export default function Splash() {
              <div className="h-1.5 w-1.5 bg-white/20 rounded-full"></div>
           </div>
         </div>
-      </motion.div>
+      </div>
       
       {/* Subtle modern background detail */}
       <div className="absolute inset-0 opacity-20 pointer-events-none">
@@ -46,3 +40,4 @@ export default function Splash() {
     </div>
   );
 }
+

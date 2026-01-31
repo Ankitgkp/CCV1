@@ -9,6 +9,14 @@ import MemoryStore from "memorystore";
 
 const SessionStore = MemoryStore(session);
 
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any; // Using any for now to avoid extensive type shuffling, or import User type
+    }
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -54,6 +62,18 @@ export async function registerRoutes(
       secret: process.env.SESSION_SECRET || "secret",
     })
   );
+
+  // Middleware to populate req.user
+  app.use(async (req, res, next) => {
+    const userId = (req.session as any).userId;
+    if (userId) {
+      const user = await storage.getUser(userId);
+      if (user) {
+        req.user = user;
+      }
+    }
+    next();
+  });
 
   // Auth routes
   app.post(api.auth.loginWithMobile.path, async (req, res) => {
@@ -244,6 +264,70 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Driver location not available" });
     }
     res.json(location);
+  });
+
+  app.get("/api/user/active-booking", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+
+    let booking;
+    if (req.user.role === "driver") {
+      booking = await storage.getActiveBookingForDriver(req.user.id);
+    } else {
+      booking = await storage.getActiveBookingForUser(req.user.id);
+    }
+
+    if (!booking) {
+      return res.json(null);
+    }
+
+    // Attach ride and driver details if needed (reusing logic from get booking)
+    // For simplicity, just fetching the full details as the client likely needs them
+    
+    let ride = null;
+    let driver = null;
+    if (booking.rideId) {
+      ride = await storage.getRide(booking.rideId);
+      if (ride?.driverId) {
+        driver = await storage.getUser(ride.driverId);
+      }
+    }
+    
+    res.json({
+      ...booking,
+      ride: ride ? {
+        id: ride.id,
+        carModel: ride.carModel,
+        carNumber: ride.carNumber,
+        latitude: ride.latitude,
+        longitude: ride.longitude,
+        pricePerKm: ride.pricePerKm,
+      } : null,
+      driver: driver ? {
+        id: driver.id,
+        name: driver.name || "Driver",
+        mobile: driver.mobile,
+        avatar: driver.avatar,
+      } : null,
+    });
+  });
+
+  app.get("/api/driver/stats", async (req: any, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const earnings = await storage.getDriverEarnings(req.user.id);
+    const totalTrips = await storage.getDriverTripCount(req.user.id);
+    res.json({ earnings, totalTrips });
+  });
+
+  app.get("/api/user/history", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const history = await storage.getUserRideHistory(req.user.id);
+    res.json(history);
+  });
+
+  app.get("/api/driver/history", async (req, res) => {
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    const history = await storage.getDriverRideHistory(req.user.id);
+    res.json(history);
   });
 
   app.get("/api/driver/earnings", async (req: any, res) => {
