@@ -12,7 +12,8 @@ const SessionStore = MemoryStore(session);
 declare global {
   namespace Express {
     interface Request {
-      user?: any; // Using any for now to avoid extensive type shuffling, or import User type
+      user?: any; 
+    
     }
   }
 }
@@ -21,7 +22,6 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Proxy for OpenStreetMap Search (to avoid CORS)
   app.get("/api/proxy/search", async (req, res) => {
     try {
       const { q } = req.query;
@@ -35,7 +35,7 @@ export async function registerRoutes(
         )}&countrycodes=in&limit=5`,
         {
           headers: {
-            "User-Agent": "RideShareApp/1.0", // Nominatim requires a User-Agent
+            "User-Agent": "RideShareApp/1.0", 
           },
         }
       );
@@ -63,7 +63,7 @@ export async function registerRoutes(
     })
   );
 
-  // Middleware to populate req.user
+
   app.use(async (req, res, next) => {
     const userId = (req.session as any).userId;
     if (userId) {
@@ -75,27 +75,26 @@ export async function registerRoutes(
     next();
   });
 
-  // Auth routes
+
   app.post(api.auth.loginWithMobile.path, async (req, res) => {
     try {
       const { mobile, otp, role } = api.auth.loginWithMobile.input.parse(req.body);
       
-      // MOCK OTP verification - always succeed for prototype
+   
       if (otp !== "1234") {
         return res.status(400).json({ message: "Invalid OTP" });
       }
 
       let user = await storage.getUserByMobile(mobile);
       if (!user) {
-        // Create user on first login
+
         user = await storage.createUser({
           mobile,
           role,
           isVerified: true
         } as any);
       } else {
-          // If user exists, maybe update role if needed, but for now just login
-          // Or we could enforce role consistency
+
       }
 
       (req.session as any).userId = user.id;
@@ -112,7 +111,7 @@ export async function registerRoutes(
     });
   });
 
-  // User routes
+
   app.get(api.user.getProfile.path, async (req, res) => {
     const userId = (req.session as any).userId;
     if (!userId) return res.status(401).json({ message: "Not authenticated" });
@@ -201,7 +200,7 @@ export async function registerRoutes(
     });
   });
 
-  // Update booking status (for drivers to accept, etc.)
+
   app.patch("/api/bookings/:id/status", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
