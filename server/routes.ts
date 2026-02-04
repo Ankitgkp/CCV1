@@ -224,11 +224,9 @@ export async function registerRoutes(
       // Don't overwrite OTP when accepting
       const updateData: any = { status: input.status };
       if (input.status === "accepted") {
-        // Do not set OTP here
+
       } else if (input.otp) {
-         // Only update OTP if explicitly needed (unlikely for other statuses, but safe)
-         // Actually, for in_progress verification, we don't change the OTP, just verify it.
-         // But let's keep it clean: strict update.
+        
       }
 
       const updatedBooking = await storage.updateBookingStatus(id, input.status);
@@ -279,8 +277,7 @@ export async function registerRoutes(
       return res.json(null);
     }
 
-    // Attach ride and driver details if needed (reusing logic from get booking)
-    // For simplicity, just fetching the full details as the client likely needs them
+
     
     let ride = null;
     let driver = null;
@@ -335,7 +332,7 @@ export async function registerRoutes(
     res.json({ earnings });
   });
 
-  // Seed data
+
   await seedDatabase();
 
   app.post("/api/rides", async (req, res) => {
@@ -375,7 +372,7 @@ export async function registerRoutes(
 
 
   const calculateHaversine = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-    const R = 6371; // Earth's radius in km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLng = (lng2 - lng1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -395,17 +392,17 @@ export async function registerRoutes(
       });
       const { pickupLat, pickupLng, dropoffLat, dropoffLng } = schema.parse(req.body);
 
-      // Get all active pool bookings that are accepted (in progress)
+
       const allBookings = await storage.getBookingsByStatus("accepted");
       const poolBookings = allBookings.filter(b => b.isPool && b.joinStatus === "owner");
 
       const availablePools = [];
       for (const booking of poolBookings) {
-        // Check if pickup is within 4km of pool's route
+
         const pickupDistance = calculateHaversine(pickupLat, pickupLng, booking.pickupLat, booking.pickupLng);
         const dropoffDistance = calculateHaversine(dropoffLat, dropoffLng, booking.dropoffLat, booking.dropoffLng);
         
-        // Must be within 4km of pickup and dropoff points
+
         if (pickupDistance < 4 && dropoffDistance < 4) {
           const ride = booking.rideId ? await storage.getRide(booking.rideId) : null;
           const driver = ride?.driverId ? await storage.getUser(ride.driverId) : null;
@@ -430,7 +427,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get all passengers in a pool
+
   app.get("/api/pools/:poolId/passengers", async (req, res) => {
     try {
       const poolId = parseInt(req.params.poolId);
